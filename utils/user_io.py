@@ -4,10 +4,11 @@ import secrets
 import string
 
 
-ROLES = ["user", "manager", "admin"]
+ROLES = ["user", "manager", "methodist", "admin"]
 ROLE_LABELS = {
     "user": "👤 Пользователь",
     "manager": "🧑‍💼 Менеджер",
+    "methodist": "👨‍🏫 Методист",
     "admin": "🔑 Администратор",
 }
 

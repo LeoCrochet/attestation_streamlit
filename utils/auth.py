@@ -22,3 +22,15 @@ def current_user():
         "full_name": st.session_state.get("full_name"),
         "role": st.session_state.get("role"),
     }
+
+
+def require_methodist():
+    """Только методист или администратор."""
+    require_login()
+    if st.session_state.get("role") not in ("methodist", "admin"):
+        st.error("⛔ Доступ только для методиста или администратора")
+        st.stop()
+
+
+def is_methodist():
+    return st.session_state.get("role") in ("methodist", "admin")

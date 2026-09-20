@@ -105,82 +105,357 @@ class Database:
     # ==================================================================
 
     def init_db(self):
-        """Инициализация базы данных (создание таблиц)."""
+        """Инициализация базы данных (создание всех таблиц)."""
         queries = [
+            # === ПОЛЬЗОВАТЕЛИ ===
             """
-            CREATE TABLE IF NOT EXISTS users (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                username VARCHAR(50) UNIQUE NOT NULL,
-                email VARCHAR(100) UNIQUE,
-                password_hash VARCHAR(255) NOT NULL,
-                full_name VARCHAR(100),
-                role ENUM('admin', 'user', 'manager') DEFAULT 'user',
+            CREATE TABLE IF NOT EXISTS users
+            (
+                id
+                INT
+                PRIMARY
+                KEY
+                AUTO_INCREMENT,
+                username
+                VARCHAR
+            (
+                50
+            ) UNIQUE NOT NULL,
+                email VARCHAR
+            (
+                100
+            ) UNIQUE,
+                password_hash VARCHAR
+            (
+                255
+            ) NOT NULL,
+                full_name VARCHAR
+            (
+                100
+            ),
+                role ENUM
+            (
+                'user',
+                'manager',
+                'methodist',
+                'admin'
+            ) DEFAULT 'user',
                 is_active BOOLEAN DEFAULT TRUE,
-                department VARCHAR(100),
-                position VARCHAR(100),
+                department VARCHAR
+            (
+                100
+            ),
+                position VARCHAR
+            (
+                100
+            ),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_login TIMESTAMP NULL,
-                INDEX idx_username (username)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                INDEX idx_username
+            (
+                username
+            )
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
             """,
+            # === ВОПРОСЫ ===
             """
-            CREATE TABLE IF NOT EXISTS questions (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                topic VARCHAR(100) NOT NULL,
+            CREATE TABLE IF NOT EXISTS questions
+            (
+                id
+                INT
+                PRIMARY
+                KEY
+                AUTO_INCREMENT,
+                topic
+                VARCHAR
+            (
+                100
+            ) NOT NULL,
                 question TEXT NOT NULL,
                 options JSON NOT NULL,
                 correct_answer INT NOT NULL,
                 difficulty INT DEFAULT 1,
-                created_by VARCHAR(50),
+                created_by VARCHAR
+            (
+                50
+            ),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                tags VARCHAR(255) DEFAULT NULL,
+                tags VARCHAR
+            (
+                255
+            ) DEFAULT NULL,
                 is_active BOOLEAN DEFAULT TRUE,
                 explanation TEXT DEFAULT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                updated_by VARCHAR(50) DEFAULT NULL,
-                INDEX idx_topic (topic),
-                INDEX idx_questions_active (is_active),
-                INDEX idx_questions_difficulty (difficulty)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                updated_by VARCHAR
+            (
+                50
+            ) DEFAULT NULL,
+                INDEX idx_topic
+            (
+                topic
+            ),
+                INDEX idx_questions_active
+            (
+                is_active
+            ),
+                INDEX idx_questions_difficulty
+            (
+                difficulty
+            )
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
             """,
+            # === ГРУППЫ ===
             """
-            CREATE TABLE IF NOT EXISTS results (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT,
-                user_name VARCHAR(50) NOT NULL,
-                topic VARCHAR(100),
+            CREATE TABLE IF NOT EXISTS `groups`
+            (
+                id
+                INT
+                PRIMARY
+                KEY
+                AUTO_INCREMENT,
+                name
+                VARCHAR
+            (
+                100
+            ) UNIQUE NOT NULL,
+                description TEXT,
+                curator_id INT DEFAULT NULL,
+                start_date DATE DEFAULT NULL,
+                end_date DATE DEFAULT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_by VARCHAR
+            (
+                50
+            ) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_groups_active
+            (
+                is_active
+            ),
+                INDEX idx_groups_curator
+            (
+                curator_id
+            )
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+            """,
+            # === РЕЗУЛЬТАТЫ ===
+            """
+            CREATE TABLE IF NOT EXISTS results
+            (
+                id
+                INT
+                PRIMARY
+                KEY
+                AUTO_INCREMENT,
+                user_id
+                INT,
+                user_name
+                VARCHAR
+            (
+                50
+            ) NOT NULL,
+                topic VARCHAR
+            (
+                100
+            ),
                 score INT DEFAULT 0,
                 total_questions INT DEFAULT 0,
                 answers JSON,
                 time_spent INT,
+                group_id INT DEFAULT NULL,
+                protocol_id INT DEFAULT NULL,
                 date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                INDEX idx_user (user_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                FOREIGN KEY
+            (
+                user_id
+            ) REFERENCES users
+            (
+                id
+            ) ON DELETE CASCADE,
+                INDEX idx_user
+            (
+                user_id
+            ),
+                INDEX idx_results_group
+            (
+                group_id
+            )
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
             """,
+            # === ЖУРНАЛ ДЕЙСТВИЙ ===
             """
-            CREATE TABLE IF NOT EXISTS audit_log (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT,
-                action VARCHAR(100) NOT NULL,
+            CREATE TABLE IF NOT EXISTS audit_log
+            (
+                id
+                INT
+                PRIMARY
+                KEY
+                AUTO_INCREMENT,
+                user_id
+                INT,
+                action
+                VARCHAR
+            (
+                100
+            ) NOT NULL,
                 details TEXT,
-                ip_address VARCHAR(45),
+                ip_address VARCHAR
+            (
+                45
+            ),
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                FOREIGN KEY
+            (
+                user_id
+            ) REFERENCES users
+            (
+                id
+            ) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
             """,
+            # === ИСТОРИЯ ВОПРОСОВ ===
             """
-            CREATE TABLE IF NOT EXISTS questions_history (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                question_id INT NOT NULL,
-                action ENUM('create', 'update', 'delete') NOT NULL,
-                changed_by VARCHAR(50),
+            CREATE TABLE IF NOT EXISTS questions_history
+            (
+                id
+                INT
+                PRIMARY
+                KEY
+                AUTO_INCREMENT,
+                question_id
+                INT
+                NOT
+                NULL,
+                action
+                ENUM
+            (
+                'create',
+                'update',
+                'delete'
+            ) NOT NULL,
+                changed_by VARCHAR
+            (
+                50
+            ),
                 changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 old_data JSON,
                 new_data JSON,
-                INDEX idx_qh_question (question_id),
-                INDEX idx_qh_date (changed_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                INDEX idx_qh_question
+            (
+                question_id
+            ),
+                INDEX idx_qh_date
+            (
+                changed_at
+            )
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+            """,
+            # === УЧАСТНИКИ ГРУПП ===
+            """
+            CREATE TABLE IF NOT EXISTS group_members
+            (
+                id
+                INT
+                PRIMARY
+                KEY
+                AUTO_INCREMENT,
+                group_id
+                INT
+                NOT
+                NULL,
+                user_id
+                INT
+                NOT
+                NULL,
+                role_in_group
+                ENUM
+            (
+                'student',
+                'curator',
+                'assistant'
+            ) DEFAULT 'student',
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                left_at TIMESTAMP NULL DEFAULT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                UNIQUE KEY uq_group_user
+            (
+                group_id,
+                user_id
+            ),
+                INDEX idx_gm_group
+            (
+                group_id
+            ),
+                INDEX idx_gm_user
+            (
+                user_id
+            ),
+                FOREIGN KEY
+            (
+                group_id
+            ) REFERENCES `groups`
+            (
+                id
+            ) ON DELETE CASCADE,
+                FOREIGN KEY
+            (
+                user_id
+            ) REFERENCES users
+            (
+                id
+            )
+              ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+            """,
+            # === ПРОТОКОЛЫ ===
+            """
+            CREATE TABLE IF NOT EXISTS protocols
+            (
+                id
+                INT
+                PRIMARY
+                KEY
+                AUTO_INCREMENT,
+                group_id
+                INT
+                NOT
+                NULL,
+                topic
+                VARCHAR
+            (
+                100
+            ) DEFAULT NULL,
+                title VARCHAR
+            (
+                255
+            ) DEFAULT NULL,
+                description TEXT,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                closed_at TIMESTAMP NULL DEFAULT NULL,
+                status ENUM
+            (
+                'open',
+                'closed',
+                'archived'
+            ) DEFAULT 'open',
+                created_by VARCHAR
+            (
+                50
+            ) DEFAULT NULL,
+                INDEX idx_protocols_group
+            (
+                group_id
+            ),
+                FOREIGN KEY
+            (
+                group_id
+            ) REFERENCES `groups`
+            (
+                id
+            ) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
             """,
         ]
 
@@ -189,6 +464,7 @@ class Database:
                 self.execute_query(query, commit=True)
             except Error as e:
                 logger.error(f"❌ Error creating table: {e}")
+                print(f"❌ [init_db] {e}", flush=True)
 
     # ==================================================================
     # ПОЛЬЗОВАТЕЛИ

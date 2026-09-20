@@ -29,12 +29,13 @@ st.title("👨‍🏫 Кабинет методиста")
 st.caption("Редактор вопросов, тем и содержания")
 
 
-tab_q, tab_add, tab_import, tab_export, tab_stats = st.tabs([
+tab_q, tab_add, tab_import, tab_export, tab_stats, tab_assign = st.tabs([
     "📋 Редактор вопросов",
     "➕ Новый вопрос",
     "📥 Импорт",
     "📤 Экспорт",
-    "📊 Статистика",
+    "📊 Статистика банка",
+    "📌 Задания",
 ])
 
 
@@ -431,3 +432,177 @@ with tab_stats:
             hole=0.4,
         )
         st.plotly_chart(fig, use_container_width=True)
+
+
+# ==================================================================
+# ВКЛАДКА: ЗАДАНИЯ
+# ==================================================================
+with tab_assign:
+    st.subheader("📌 Задания для групп")
+
+    # ---------- Создание ----------
+    with st.expander("➕ Создать задание", expanded=False):
+        groups = db.get_all_groups(only_active=True)
+        if not groups:
+            st.warning("Сначала создайте хотя бы одну группу в разделе 👥 Группы")
+        else:
+            group_map = {f"{g['name']} ({g['member_count']} чел.)": g["id"] for g in groups}
+            topics = ["Все темы"] + db.get_all_topics(include_archived=False)
+
+            with st.form("create_assignment_form", clear_on_submit=True):
+                c1, c2 = st.columns(2)
+                with c1:
+                    a_group_label = st.selectbox("Группа *", list(group_map.keys()))
+                    a_topic = st.selectbox("Тема", topics)
+                    a_title = st.text_input("Название задания",
+                                            placeholder="Аттестация по Python, декабрь 2026")
+                    a_desc = st.text_area("Описание", height=80)
+                with c2:
+                    a_num = st.number_input("Количество вопросов", 1, 50, 10)
+                    a_attempts = st.number_input("Макс. попыток", 1, 10, 1)
+                    a_pass = st.slider("Проходной балл, %", 0, 100, 60, 5)
+                    a_time = st.number_input("Ограничение времени, мин (0 = без)", 0, 300, 0)
+
+                c_due1, c_due2 = st.columns(2)
+                with c_due1:
+                    a_due_date = st.date_input("Дедлайн (дата)", value=None)
+                with c_due2:
+                    a_due_time = st.time_input("Дедлайн (время)", value=None)
+
+                if st.form_submit_button("✅ Создать", type="primary"):
+                    from datetime import datetime, time as _time
+                    due = None
+                    if a_due_date:
+                        t = a_due_time if a_due_time else _time(23, 59)
+                        due = datetime.combine(a_due_date, t)
+
+                    topic_value = None if a_topic == "Все темы" else a_topic
+                    time_limit = a_time if a_time > 0 else None
+
+                    aid = db.create_assignment(
+                        group_id=group_map[a_group_label],
+                        topic=topic_value,
+                        num_questions=a_num,
+                        max_attempts=a_attempts,
+                        time_limit_min=time_limit,
+                        pass_score=a_pass,
+                        title=a_title.strip() or None,
+                        description=a_desc.strip() or None,
+                        due_date=due,
+                        created_by=st.session_state.user,
+                    )
+                    db.log_action(
+                        st.session_state.user_id, "assignment_create",
+                        f"Задание #{aid} для группы {a_group_label}",
+                    )
+                    st.success(f"✅ Задание создано (ID: {aid})")
+                    st.rerun()
+
+    # ---------- Список заданий ----------
+    st.divider()
+    st.subheader("📋 Все задания")
+
+    f_status = st.selectbox(
+        "Фильтр по статусу", ["Все", "open", "closed", "archived"], key="a_filter",
+    )
+    assignments = db.get_all_assignments(
+        status=None if f_status == "Все" else f_status,
+    )
+
+    if not assignments:
+        st.info("Заданий пока нет")
+    else:
+        df_a = pd.DataFrame([
+            {
+                "ID": a["id"],
+                "Название": a["title"] or "—",
+                "Группа": a["group_name"],
+                "Тема": a["topic"] or "Все",
+                "Вопросов": a["num_questions"],
+                "Попыток": a["max_attempts"],
+                "Проходной": f"{a['pass_score']}%",
+                "Дедлайн": a["due_date"].strftime("%d.%m.%Y %H:%M") if a.get("due_date") else "—",
+                "Сдали": f"{a['completed_count']} / {a['total_students']}",
+                "Статус": a["status"],
+            }
+            for a in assignments
+        ])
+        st.dataframe(df_a, use_container_width=True, hide_index=True)
+
+    # ---------- Детали задания ----------
+    st.divider()
+    st.subheader("🔍 Детали задания")
+
+    if assignments:
+        assign_map = {f"#{a['id']} — {a['title'] or a['group_name']}": a["id"]
+                      for a in assignments}
+        sel = st.selectbox("Выберите задание", list(assign_map.keys()), key="a_sel")
+        aid = assign_map[sel]
+
+        assignment = db.get_assignment(aid)
+        stats = db.get_assignment_statistics(aid)
+
+        if assignment:
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Группа", assignment["group_name"])
+            c2.metric("Тема", assignment["topic"] or "Все")
+            c3.metric("Проходной", f"{assignment['pass_score']}%")
+            info = stats.get("info") or {}
+            total = info.get("total_students") or 0
+            c4.metric("Студентов", total)
+
+            students = stats.get("students") or []
+            if students:
+                passed = sum(1 for s in students
+                             if (s.get("best_score") or 0) >= assignment["pass_score"])
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Сдали", f"{passed} / {len(students)}")
+                if len(students):
+                    avg = sum((s.get("best_score") or 0) for s in students) / len(students)
+                    c2.metric("Средний балл группы", f"{avg:.1f}%")
+
+                df_students = pd.DataFrame([
+                    {
+                        "ФИО": s["full_name"] or s["username"],
+                        "Логин": s["username"],
+                        "Попыток": s["attempts"] or 0,
+                        "Лучший %": round(s["best_score"] or 0, 1),
+                        "Последняя попытка": (
+                            s["last_attempt"].strftime("%d.%m.%Y %H:%M")
+                            if s.get("last_attempt") else "—"
+                        ),
+                        "Статус": "✅ Сдал" if (s.get("best_score") or 0) >=
+                                  assignment["pass_score"] else "⏳ В процессе",
+                    }
+                    for s in students
+                ])
+                st.dataframe(df_students, use_container_width=True, hide_index=True)
+
+                # Экспорт
+                from datetime import datetime as _dt
+                ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+                st.download_button(
+                    "📥 Скачать отчёт по заданию (CSV)",
+                    data=df_students.to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"assignment_{aid}_{ts}.csv",
+                    mime="text/csv",
+                )
+
+            # Кнопки управления
+            c1, c2 = st.columns(2)
+            with c1:
+                if assignment["status"] == "open":
+                    if st.button("🔒 Закрыть задание", use_container_width=True):
+                        db.close_assignment(aid)
+                        db.log_action(st.session_state.user_id, "assignment_close",
+                                      f"Задание #{aid} закрыто")
+                        st.success("Задание закрыто")
+                        st.rerun()
+            with c2:
+                if assignment["status"] != "archived":
+                    if st.button("🗄️ Архивировать", use_container_width=True):
+                        db.archive_assignment(aid)
+                        db.log_action(st.session_state.user_id, "assignment_archive",
+                                      f"Задание #{aid} в архиве")
+                        st.success("Задание архивировано")
+                        st.rerun()

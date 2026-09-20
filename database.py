@@ -109,353 +109,161 @@ class Database:
         queries = [
             # === ПОЛЬЗОВАТЕЛИ ===
             """
-            CREATE TABLE IF NOT EXISTS users
-            (
-                id
-                INT
-                PRIMARY
-                KEY
-                AUTO_INCREMENT,
-                username
-                VARCHAR
-            (
-                50
-            ) UNIQUE NOT NULL,
-                email VARCHAR
-            (
-                100
-            ) UNIQUE,
-                password_hash VARCHAR
-            (
-                255
-            ) NOT NULL,
-                full_name VARCHAR
-            (
-                100
-            ),
-                role ENUM
-            (
-                'user',
-                'manager',
-                'methodist',
-                'admin'
-            ) DEFAULT 'user',
+            CREATE TABLE IF NOT EXISTS users (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                username VARCHAR(50) UNIQUE NOT NULL,
+                email VARCHAR(100) UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                full_name VARCHAR(100),
+                role ENUM('user', 'manager', 'methodist', 'admin') DEFAULT 'user',
                 is_active BOOLEAN DEFAULT TRUE,
-                department VARCHAR
-            (
-                100
-            ),
-                position VARCHAR
-            (
-                100
-            ),
+                department VARCHAR(100),
+                position VARCHAR(100),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_login TIMESTAMP NULL,
-                INDEX idx_username
-            (
-                username
-            )
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+                INDEX idx_username (username)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """,
             # === ВОПРОСЫ ===
             """
-            CREATE TABLE IF NOT EXISTS questions
-            (
-                id
-                INT
-                PRIMARY
-                KEY
-                AUTO_INCREMENT,
-                topic
-                VARCHAR
-            (
-                100
-            ) NOT NULL,
+            CREATE TABLE IF NOT EXISTS questions (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                topic VARCHAR(100) NOT NULL,
                 question TEXT NOT NULL,
                 options JSON NOT NULL,
                 correct_answer INT NOT NULL,
                 difficulty INT DEFAULT 1,
-                created_by VARCHAR
-            (
-                50
-            ),
+                created_by VARCHAR(50),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                tags VARCHAR
-            (
-                255
-            ) DEFAULT NULL,
+                tags VARCHAR(255) DEFAULT NULL,
                 is_active BOOLEAN DEFAULT TRUE,
                 explanation TEXT DEFAULT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                updated_by VARCHAR
-            (
-                50
-            ) DEFAULT NULL,
-                INDEX idx_topic
-            (
-                topic
-            ),
-                INDEX idx_questions_active
-            (
-                is_active
-            ),
-                INDEX idx_questions_difficulty
-            (
-                difficulty
-            )
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+                updated_by VARCHAR(50) DEFAULT NULL,
+                INDEX idx_topic (topic),
+                INDEX idx_questions_active (is_active),
+                INDEX idx_questions_difficulty (difficulty)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """,
             # === ГРУППЫ ===
             """
-            CREATE TABLE IF NOT EXISTS `groups`
-            (
-                id
-                INT
-                PRIMARY
-                KEY
-                AUTO_INCREMENT,
-                name
-                VARCHAR
-            (
-                100
-            ) UNIQUE NOT NULL,
+            CREATE TABLE IF NOT EXISTS `groups` (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                name VARCHAR(100) UNIQUE NOT NULL,
                 description TEXT,
                 curator_id INT DEFAULT NULL,
                 start_date DATE DEFAULT NULL,
                 end_date DATE DEFAULT NULL,
                 is_active BOOLEAN DEFAULT TRUE,
-                created_by VARCHAR
-            (
-                50
-            ) DEFAULT NULL,
+                created_by VARCHAR(50) DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_groups_active
-            (
-                is_active
-            ),
-                INDEX idx_groups_curator
-            (
-                curator_id
-            )
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+                INDEX idx_groups_active (is_active),
+                INDEX idx_groups_curator (curator_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """,
+            # === ЗАДАНИЯ ===
+            """
+            CREATE TABLE IF NOT EXISTS assignments (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                group_id INT NOT NULL,
+                topic VARCHAR(100) DEFAULT NULL,
+                num_questions INT DEFAULT 10,
+                max_attempts INT DEFAULT 1,
+                time_limit_min INT DEFAULT NULL,
+                pass_score INT DEFAULT 60,
+                title VARCHAR(255),
+                description TEXT,
+                due_date TIMESTAMP NULL DEFAULT NULL,
+                starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status ENUM('open', 'closed', 'archived') DEFAULT 'open',
+                created_by VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_assignments_group (group_id),
+                INDEX idx_assignments_status (status),
+                INDEX idx_assignments_due (due_date),
+                FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """,
             # === РЕЗУЛЬТАТЫ ===
             """
-            CREATE TABLE IF NOT EXISTS results
-            (
-                id
-                INT
-                PRIMARY
-                KEY
-                AUTO_INCREMENT,
-                user_id
-                INT,
-                user_name
-                VARCHAR
-            (
-                50
-            ) NOT NULL,
-                topic VARCHAR
-            (
-                100
-            ),
+            CREATE TABLE IF NOT EXISTS results (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                user_id INT,
+                user_name VARCHAR(50) NOT NULL,
+                topic VARCHAR(100),
                 score INT DEFAULT 0,
                 total_questions INT DEFAULT 0,
                 answers JSON,
                 time_spent INT,
                 group_id INT DEFAULT NULL,
                 protocol_id INT DEFAULT NULL,
+                assignment_id INT DEFAULT NULL,
                 date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY
-            (
-                user_id
-            ) REFERENCES users
-            (
-                id
-            ) ON DELETE CASCADE,
-                INDEX idx_user
-            (
-                user_id
-            ),
-                INDEX idx_results_group
-            (
-                group_id
-            )
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                INDEX idx_user (user_id),
+                INDEX idx_results_group (group_id),
+                INDEX idx_results_assignment (assignment_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """,
-            # === ЖУРНАЛ ДЕЙСТВИЙ ===
+            # === ЖУРНАЛ ===
             """
-            CREATE TABLE IF NOT EXISTS audit_log
-            (
-                id
-                INT
-                PRIMARY
-                KEY
-                AUTO_INCREMENT,
-                user_id
-                INT,
-                action
-                VARCHAR
-            (
-                100
-            ) NOT NULL,
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                user_id INT,
+                action VARCHAR(100) NOT NULL,
                 details TEXT,
-                ip_address VARCHAR
-            (
-                45
-            ),
+                ip_address VARCHAR(45),
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY
-            (
-                user_id
-            ) REFERENCES users
-            (
-                id
-            ) ON DELETE CASCADE
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """,
             # === ИСТОРИЯ ВОПРОСОВ ===
             """
-            CREATE TABLE IF NOT EXISTS questions_history
-            (
-                id
-                INT
-                PRIMARY
-                KEY
-                AUTO_INCREMENT,
-                question_id
-                INT
-                NOT
-                NULL,
-                action
-                ENUM
-            (
-                'create',
-                'update',
-                'delete'
-            ) NOT NULL,
-                changed_by VARCHAR
-            (
-                50
-            ),
+            CREATE TABLE IF NOT EXISTS questions_history (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                question_id INT NOT NULL,
+                action ENUM('create', 'update', 'delete') NOT NULL,
+                changed_by VARCHAR(50),
                 changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 old_data JSON,
                 new_data JSON,
-                INDEX idx_qh_question
-            (
-                question_id
-            ),
-                INDEX idx_qh_date
-            (
-                changed_at
-            )
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+                INDEX idx_qh_question (question_id),
+                INDEX idx_qh_date (changed_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """,
             # === УЧАСТНИКИ ГРУПП ===
             """
-            CREATE TABLE IF NOT EXISTS group_members
-            (
-                id
-                INT
-                PRIMARY
-                KEY
-                AUTO_INCREMENT,
-                group_id
-                INT
-                NOT
-                NULL,
-                user_id
-                INT
-                NOT
-                NULL,
-                role_in_group
-                ENUM
-            (
-                'student',
-                'curator',
-                'assistant'
-            ) DEFAULT 'student',
+            CREATE TABLE IF NOT EXISTS group_members (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                group_id INT NOT NULL,
+                user_id INT NOT NULL,
+                role_in_group ENUM('student', 'curator', 'assistant') DEFAULT 'student',
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 left_at TIMESTAMP NULL DEFAULT NULL,
                 is_active BOOLEAN DEFAULT TRUE,
-                UNIQUE KEY uq_group_user
-            (
-                group_id,
-                user_id
-            ),
-                INDEX idx_gm_group
-            (
-                group_id
-            ),
-                INDEX idx_gm_user
-            (
-                user_id
-            ),
-                FOREIGN KEY
-            (
-                group_id
-            ) REFERENCES `groups`
-            (
-                id
-            ) ON DELETE CASCADE,
-                FOREIGN KEY
-            (
-                user_id
-            ) REFERENCES users
-            (
-                id
-            )
-              ON DELETE CASCADE
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+                UNIQUE KEY uq_group_user (group_id, user_id),
+                INDEX idx_gm_group (group_id),
+                INDEX idx_gm_user (user_id),
+                FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """,
             # === ПРОТОКОЛЫ ===
             """
-            CREATE TABLE IF NOT EXISTS protocols
-            (
-                id
-                INT
-                PRIMARY
-                KEY
-                AUTO_INCREMENT,
-                group_id
-                INT
-                NOT
-                NULL,
-                topic
-                VARCHAR
-            (
-                100
-            ) DEFAULT NULL,
-                title VARCHAR
-            (
-                255
-            ) DEFAULT NULL,
+            CREATE TABLE IF NOT EXISTS protocols (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                group_id INT NOT NULL,
+                topic VARCHAR(100) DEFAULT NULL,
+                title VARCHAR(255) DEFAULT NULL,
                 description TEXT,
                 started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 closed_at TIMESTAMP NULL DEFAULT NULL,
-                status ENUM
-            (
-                'open',
-                'closed',
-                'archived'
-            ) DEFAULT 'open',
-                created_by VARCHAR
-            (
-                50
-            ) DEFAULT NULL,
-                INDEX idx_protocols_group
-            (
-                group_id
-            ),
-                FOREIGN KEY
-            (
-                group_id
-            ) REFERENCES `groups`
-            (
-                id
-            ) ON DELETE CASCADE
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE =utf8mb4_unicode_ci
+                status ENUM('open', 'closed', 'archived') DEFAULT 'open',
+                created_by VARCHAR(50) DEFAULT NULL,
+                INDEX idx_protocols_group (group_id),
+                FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """,
         ]
 
@@ -974,18 +782,20 @@ class Database:
     # ==================================================================
 
     def save_result(self, user_id, user_name, topic, answers, score, total,
-                    time_spent=None):
+                    time_spent=None, group_id=None, protocol_id=None,
+                    assignment_id=None):
         """Сохранение результатов теста."""
         cursor = self.get_cursor()
         self.execute_query(
             """
             INSERT INTO results
-                (user_id, user_name, topic, score, total_questions,
-                 answers, time_spent)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            (user_id, user_name, topic, score, total_questions,
+             answers, time_spent, group_id, protocol_id, assignment_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (user_id, user_name, topic, score, total,
-             json.dumps(answers, ensure_ascii=False), time_spent),
+             json.dumps(answers, ensure_ascii=False), time_spent,
+             group_id, protocol_id, assignment_id),
             commit=True,
         )
         return cursor.lastrowid
@@ -1041,6 +851,130 @@ class Database:
             'overall': overall,
             'by_topic': by_topic,
         }
+
+        # ==================================================================
+        # ЗАДАНИЯ
+        # ==================================================================
+
+    def create_assignment(self, group_id, topic=None, num_questions=10,
+                          max_attempts=1, time_limit_min=None, pass_score=60,
+                          title=None, description=None, due_date=None,
+                          created_by=None):
+        cursor = self.get_cursor()
+        self.execute_query("""
+                           INSERT INTO assignments
+                           (group_id, topic, num_questions, max_attempts,
+                            time_limit_min, pass_score, title, description,
+                            due_date, created_by)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                           """, (group_id, topic, num_questions, max_attempts,
+                                 time_limit_min, pass_score, title, description,
+                                 due_date, created_by), commit=True)
+        return cursor.lastrowid
+
+    def get_assignment(self, assignment_id):
+        cursor = self.get_cursor()
+        cursor.execute("""
+                       SELECT a.*, g.name AS group_name
+                       FROM assignments a
+                                JOIN `groups` g ON g.id = a.group_id
+                       WHERE a.id = %s
+                       """, (assignment_id,))
+        return cursor.fetchone()
+
+    def get_all_assignments(self, status=None):
+        cursor = self.get_cursor()
+        where = ""
+        params = []
+        if status:
+            where = "WHERE a.status = %s"
+            params.append(status)
+
+        cursor.execute(f"""
+               SELECT a.*,
+                      g.name AS group_name,
+                      (SELECT COUNT(*) FROM group_members gm
+                       WHERE gm.group_id = a.group_id AND gm.is_active = TRUE) AS total_students,
+                      (SELECT COUNT(DISTINCT r.user_id) FROM results r
+                       WHERE r.assignment_id = a.id) AS completed_count
+               FROM assignments a
+               JOIN `groups` g ON g.id = a.group_id
+               {where}
+               ORDER BY a.status, a.created_at DESC
+           """, params)
+        return cursor.fetchall()
+
+    def update_assignment(self, assignment_id, **fields):
+        if not fields:
+            return False
+        fields.pop("id", None)
+        fields.pop("created_at", None)
+        set_sql = ", ".join(f"{k} = %s" for k in fields)
+        params = list(fields.values()) + [assignment_id]
+        self.execute_query(f"UPDATE assignments SET {set_sql} WHERE id = %s",
+                           params, commit=True)
+        return True
+
+    def close_assignment(self, assignment_id):
+        return self.update_assignment(assignment_id, status="closed")
+
+    def archive_assignment(self, assignment_id):
+        return self.update_assignment(assignment_id, status="archived")
+
+    def get_user_assignments(self, user_id, only_active=True):
+        cursor = self.get_cursor()
+        status_filter = "AND a.status = 'open'" if only_active else ""
+
+        cursor.execute(f"""
+               SELECT
+                   a.*,
+                   g.name AS group_name,
+                   (SELECT COUNT(*) FROM results r
+                    WHERE r.assignment_id = a.id AND r.user_id = %s) AS attempts_used,
+                   (SELECT MAX(r.score * 100.0 / NULLIF(r.total_questions, 0))
+                    FROM results r
+                    WHERE r.assignment_id = a.id AND r.user_id = %s) AS best_score
+               FROM group_members gm
+               JOIN assignments a ON a.group_id = gm.group_id
+               JOIN `groups` g ON g.id = a.group_id
+               WHERE gm.user_id = %s AND gm.is_active = TRUE
+               {status_filter}
+               ORDER BY a.due_date IS NULL, a.due_date, a.created_at DESC
+           """, (user_id, user_id, user_id))
+        return cursor.fetchall()
+
+    def get_assignment_statistics(self, assignment_id):
+        cursor = self.get_cursor()
+
+        cursor.execute("""
+                       SELECT a.group_id,
+                              (SELECT COUNT(*)
+                               FROM group_members gm
+                               WHERE gm.group_id = a.group_id
+                                 AND gm.is_active = TRUE) AS total_students
+                       FROM assignments a
+                       WHERE a.id = %s
+                       """, (assignment_id,))
+        info = cursor.fetchone()
+
+        cursor.execute("""
+                       SELECT u.id                                                AS user_id,
+                              u.username,
+                              u.full_name,
+                              COUNT(r.id)                                         AS attempts,
+                              MAX(r.score * 100.0 / NULLIF(r.total_questions, 0)) AS best_score,
+                              MAX(r.date)                                         AS last_attempt
+                       FROM group_members gm
+                                JOIN users u ON u.id = gm.user_id
+                                LEFT JOIN results r ON r.user_id = u.id AND r.assignment_id = %s
+                       WHERE gm.group_id = (SELECT group_id FROM assignments WHERE id = %s)
+                         AND gm.is_active = TRUE
+                       GROUP BY u.id, u.username, u.full_name
+                       ORDER BY u.full_name
+                       """, (assignment_id, assignment_id))
+        students = cursor.fetchall()
+
+        return {"info": info, "students": students}
 
     # ==================================================================
     # ЖУРНАЛ ДЕЙСТВИЙ

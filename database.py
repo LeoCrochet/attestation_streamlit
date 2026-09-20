@@ -1072,3 +1072,218 @@ class Database:
             (limit,),
         )
         return cursor.fetchall()
+
+        # ==================================================================
+        # ГРУППЫ ОБУЧЕНИЯ
+        # ==================================================================
+
+    def get_all_groups(self, only_active=False, include_member_count=True):
+        """Список групп."""
+        cursor = self.get_cursor()
+        where = "WHERE g.is_active = TRUE" if only_active else ""
+        query = f"""
+            SELECT g.*,
+                   u.full_name AS curator_name,
+                   u.username  AS curator_username,
+                   (SELECT COUNT(*) FROM group_members gm
+                    WHERE gm.group_id = g.id AND gm.is_active = TRUE) AS member_count
+            FROM `groups` g
+            LEFT JOIN users u ON u.id = g.curator_id
+            {where}
+            ORDER BY g.is_active DESC, g.name
+        """
+        cursor.execute(query)
+        return cursor.fetchall()
+
+    def get_group_by_id(self, group_id):
+        cursor = self.get_cursor()
+        cursor.execute("""
+            SELECT g.*, u.full_name AS curator_name
+            FROM `groups` g
+            LEFT JOIN users u ON u.id = g.curator_id
+            WHERE g.id = %s
+        """, (group_id,))
+        return cursor.fetchone()
+
+    def create_group(self, name, description=None, curator_id=None,
+                     start_date=None, end_date=None, created_by=None):
+        cursor = self.get_cursor()
+        self.execute_query("""
+            INSERT INTO `groups` (name, description, curator_id,
+                                  start_date, end_date, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (name, description, curator_id, start_date, end_date, created_by),
+            commit=True)
+        return cursor.lastrowid
+
+    def update_group(self, group_id, **fields):
+        if not fields:
+            return False
+        fields.pop("id", None)
+        fields.pop("created_at", None)
+        set_sql = ", ".join(f"{k} = %s" for k in fields)
+        params = list(fields.values()) + [group_id]
+        self.execute_query(f"UPDATE `groups` SET {set_sql} WHERE id = %s",
+                           params, commit=True)
+        return True
+
+    def deactivate_group(self, group_id):
+        return self.update_group(group_id, is_active=False)
+
+    def add_group_member(self, group_id, user_id, role_in_group="student"):
+        """Добавить участника (или реактивировать)."""
+        cursor = self.get_cursor()
+        cursor.execute("""
+            SELECT id, is_active FROM group_members
+            WHERE group_id = %s AND user_id = %s
+        """, (group_id, user_id))
+        existing = cursor.fetchone()
+
+        if existing:
+            self.execute_query("""
+                UPDATE group_members
+                SET is_active = TRUE, left_at = NULL, role_in_group = %s
+                WHERE id = %s
+            """, (role_in_group, existing["id"]), commit=True)
+            return existing["id"]
+
+        self.execute_query("""
+            INSERT INTO group_members (group_id, user_id, role_in_group)
+            VALUES (%s, %s, %s)
+        """, (group_id, user_id, role_in_group), commit=True)
+        return cursor.lastrowid
+
+    def remove_group_member(self, group_id, user_id):
+        self.execute_query("""
+            UPDATE group_members
+            SET is_active = FALSE, left_at = CURRENT_TIMESTAMP
+            WHERE group_id = %s AND user_id = %s
+        """, (group_id, user_id), commit=True)
+        return True
+
+    def get_group_members(self, group_id, only_active=True):
+        cursor = self.get_cursor()
+        where = "AND gm.is_active = TRUE" if only_active else ""
+        cursor.execute(f"""
+            SELECT gm.*, u.username, u.full_name, u.email, u.role
+            FROM group_members gm
+            JOIN users u ON u.id = gm.user_id
+            WHERE gm.group_id = %s {where}
+            ORDER BY u.full_name, u.username
+        """, (group_id,))
+        return cursor.fetchall()
+
+    def get_user_groups(self, user_id, only_active=True):
+        cursor = self.get_cursor()
+        where = "AND gm.is_active = TRUE" if only_active else ""
+        cursor.execute(f"""
+            SELECT g.*, gm.role_in_group, gm.joined_at
+            FROM group_members gm
+            JOIN `groups` g ON g.id = gm.group_id
+            WHERE gm.user_id = %s {where}
+            ORDER BY g.name
+        """, (user_id,))
+        return cursor.fetchall()
+
+    def get_group_statistics(self, group_id, topic=None):
+        cursor = self.get_cursor()
+        where_topic = "AND r.topic = %s" if topic else ""
+        params = [group_id]
+        if topic:
+            params.append(topic)
+
+        cursor.execute(f"""
+            SELECT
+                u.id             AS user_id,
+                u.username,
+                u.full_name,
+                COUNT(r.id)      AS tests_count,
+                AVG(r.score * 100.0 / NULLIF(r.total_questions, 0)) AS avg_score,
+                MAX(r.score * 100.0 / NULLIF(r.total_questions, 0)) AS max_score,
+                MAX(r.date)      AS last_test_date,
+                SUM(r.score)     AS total_correct,
+                SUM(r.total_questions) AS total_questions
+            FROM group_members gm
+            JOIN users u ON u.id = gm.user_id
+            LEFT JOIN results r ON r.user_id = u.id
+                AND (r.group_id = gm.group_id OR r.group_id IS NULL)
+                {where_topic}
+            WHERE gm.group_id = %s AND gm.is_active = TRUE
+            GROUP BY u.id, u.username, u.full_name
+            ORDER BY u.full_name, u.username
+        """, params)
+        return cursor.fetchall()
+
+    def get_group_results_detailed(self, group_id, topic=None,
+                                   date_from=None, date_to=None):
+        cursor = self.get_cursor()
+        where = ["gm.group_id = %s", "gm.is_active = TRUE"]
+        params = [group_id]
+
+        if topic:
+            where.append("r.topic = %s")
+            params.append(topic)
+        if date_from:
+            where.append("r.date >= %s")
+            params.append(date_from)
+        if date_to:
+            where.append("r.date <= %s")
+            params.append(date_to)
+
+        where_sql = " AND ".join(where)
+
+        cursor.execute(f"""
+            SELECT
+                r.id, r.date, r.topic, r.score, r.total_questions,
+                r.time_spent, r.group_id,
+                (r.score * 100.0 / NULLIF(r.total_questions, 0)) AS percentage,
+                u.id AS user_id, u.username, u.full_name
+            FROM group_members gm
+            JOIN users u ON u.id = gm.user_id
+            JOIN results r ON r.user_id = u.id
+            WHERE {where_sql}
+            ORDER BY u.full_name, r.date DESC
+        """, params)
+        return cursor.fetchall()
+
+        # ==================================================================
+        # ПРОТОКОЛЫ
+        # ==================================================================
+
+    def create_protocol(self, group_id, topic, title=None, description=None,
+                        created_by=None):
+        cursor = self.get_cursor()
+        self.execute_query("""
+                           INSERT INTO protocols (group_id, topic, title, description, created_by)
+                           VALUES (%s, %s, %s, %s, %s)
+                           """, (group_id, topic, title, description, created_by), commit=True)
+        return cursor.lastrowid
+
+    def get_protocol(self, protocol_id):
+        cursor = self.get_cursor()
+        cursor.execute("""
+                       SELECT p.*, g.name AS group_name
+                       FROM protocols p
+                                JOIN groups g ON g.id = p.group_id
+                       WHERE p.id = %s
+                       """, (protocol_id,))
+        return cursor.fetchone()
+
+    def get_protocols_for_group(self, group_id):
+        cursor = self.get_cursor()
+        cursor.execute("""
+                       SELECT *
+                       FROM protocols
+                       WHERE group_id = %s
+                       ORDER BY started_at DESC
+                       """, (group_id,))
+        return cursor.fetchall()
+
+    def close_protocol(self, protocol_id):
+        self.execute_query("""
+                           UPDATE protocols
+                           SET status    = 'closed',
+                               closed_at = CURRENT_TIMESTAMP
+                           WHERE id = %s
+                           """, (protocol_id,), commit=True)
+        return True

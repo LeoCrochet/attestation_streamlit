@@ -1064,7 +1064,8 @@ class Database:
     def deactivate_group(self, group_id):
         return self.update_group(group_id, is_active=False)
 
-    def add_group_member(self, group_id, user_id, role_in_group="student"):
+    def add_group_member(self, group_id, user_id, role_in_group="student", 
+                         profession=None, education=None, birth_year=None, training_type=None):
         """Добавить участника (или реактивировать)."""
         cursor = self.get_cursor()
         cursor.execute("""
@@ -1076,15 +1077,17 @@ class Database:
         if existing:
             self.execute_query("""
                 UPDATE group_members
-                SET is_active = TRUE, left_at = NULL, role_in_group = %s
+                SET is_active = TRUE, left_at = NULL, role_in_group = %s,
+                    profession = %s, education = %s, birth_year = %s, training_type = %s
                 WHERE id = %s
-            """, (role_in_group, existing["id"]), commit=True)
+            """, (role_in_group, profession, education, birth_year, training_type, existing["id"]), commit=True)
             return existing["id"]
 
         self.execute_query("""
-            INSERT INTO group_members (group_id, user_id, role_in_group)
-            VALUES (%s, %s, %s)
-        """, (group_id, user_id, role_in_group), commit=True)
+            INSERT INTO group_members 
+                (group_id, user_id, role_in_group, profession, education, birth_year, training_type)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (group_id, user_id, role_in_group, profession, education, birth_year, training_type), commit=True)
         return cursor.lastrowid
 
     def remove_group_member(self, group_id, user_id):

@@ -10,13 +10,47 @@ from utils.auth import require_login
 st.set_page_config(page_title="Тестирование", page_icon="📝", layout="wide")
 require_login()
 
-
 @st.cache_resource
 def get_db():
     return Database()
 
-
 db = get_db()
+
+
+# =========================================================
+# 🥷 БЛОК СУРОГАТА (Прохождение теста за сотрудника)
+# =========================================================
+if "impersonate_user_id" in st.session_state:
+    # Сохраняем данные методиста, чтобы вернуть их потом
+    if "real_user_id" not in st.session_state:
+        st.session_state.real_user_id = st.session_state.user_id
+        st.session_state.real_user = st.session_state.user
+        st.session_state.real_full_name = st.session_state.full_name
+
+    # Подменяем личность на студента
+    st.session_state.user_id = st.session_state.impersonate_user_id
+    st.session_state.user = st.session_state.impersonate_user_name
+    st.session_state.full_name = st.session_state.impersonate_user_name
+
+    # Предупреждение для методиста
+    st.warning(f"👨‍🏫 **Режим Методиста:** Вы проходите тест от имени сотрудника **{st.session_state.full_name}**.")
+    
+    if st.button("❌ Выйти из режима сурогата (вернуться к группам)"):
+        # Возвращаем всё как было
+        st.session_state.user_id = st.session_state.pop("real_user_id")
+        st.session_state.user = st.session_state.pop("real_user")
+        st.session_state.full_name = st.session_state.pop("real_full_name")
+        
+        del st.session_state["impersonate_user_id"]
+        del st.session_state["impersonate_user_name"]
+        if "impersonate_group_id" in st.session_state:
+            del st.session_state["impersonate_group_id"]
+            
+        # Сбрасываем тест, если он шел
+        for key in ("test_questions", "answers", "current_q", "test_finished", "test_start"):
+            st.session_state.pop(key, None)
+            
+        st.switch_page("pages/6_👥_Группы.py")
 
 
 def _reset_test_state():
@@ -38,9 +72,9 @@ st.title("📝 Тестирование")
 
 
 # ========== АКТИВНЫЕ ЗАДАНИЯ ==========
+# Загружаем задания для того пользователя, от чьего имени мы сейчас работаем
 if not st.session_state.get("test_questions"):
-    user_assignments = db.get_user_assignments(st.session_state.user_id,
-                                                 only_active=True)
+    user_assignments = db.get_user_assignments(st.session_state.user_id, only_active=True)
     if user_assignments:
         st.subheader("📌 Активные задания")
         for a in user_assignments:
@@ -71,13 +105,12 @@ if not st.session_state.get("test_questions"):
                     if st.button("▶️ Начать", key=f"start_assign_{a['id']}",
                                  type="primary", use_container_width=True,
                                  disabled=disabled):
-                        import random as _random
                         topic_filter = a["topic"]
                         questions = db.get_questions_by_topic(topic_filter)
                         if not questions:
                             st.error("Нет вопросов по теме")
                         else:
-                            _random.shuffle(questions)
+                            random.shuffle(questions)
                             _reset_test_state()
                             st.session_state.test_questions = questions[:a["num_questions"]]
                             st.session_state.current_q = 0
@@ -90,7 +123,7 @@ if not st.session_state.get("test_questions"):
                             st.rerun()
         st.divider()
 
-# ========== ЭКРАН 1: ВЫБОР И СТАРТ ==========
+# ========== ЭКРАН 1: ВЫБОР И СТАРТ (Свободный тест) ==========
 if not st.session_state.get("test_questions"):
     topics = ["Все темы"] + db.get_all_topics()
 
@@ -102,7 +135,7 @@ if not st.session_state.get("test_questions"):
             "Кол-во вопросов", min_value=1, max_value=50, value=10, key="sel_num",
         )
 
-    if st.button("🚀 Начать тест", type="primary", use_container_width=True):
+    if st.button("🚀 Начать тест (Свободный)", type="primary", use_container_width=True):
         topic_filter = None if selected_topic == "Все темы" else selected_topic
         questions = db.get_questions_by_topic(topic_filter)
         if not questions:
@@ -119,7 +152,6 @@ if not st.session_state.get("test_questions"):
             st.rerun()
 
 
-# ========== ЭКРАН 2: ПРОХОЖДЕНИЕ ТЕСТА ==========
 # ========== ЭКРАН 2: ПРОХОЖДЕНИЕ ТЕСТА ==========
 elif not st.session_state.get("test_finished"):
     qs = st.session_state.test_questions
@@ -151,11 +183,18 @@ elif not st.session_state.get("test_finished"):
                     if st.session_state.answers.get(i) == qq["correct_answer"]
                 )
 
-                # Привязка к группе и заданию
                 assignment_id = st.session_state.get("assignment_id")
+                
+                # Если это тест по заданию
                 if assignment_id:
                     assignment = db.get_assignment(assignment_id)
                     group_id = assignment["group_id"] if assignment else None
+                
+                # Если это тест в режиме сурогата
+                elif "impersonate_group_id" in st.session_state:
+                    group_id = st.session_state["impersonate_group_id"]
+                
+                # Обычный свободный тест
                 else:
                     user_groups = db.get_user_groups(st.session_state.user_id)
                     group_id = user_groups[0]["id"] if len(user_groups) == 1 else None
@@ -186,7 +225,6 @@ else:
     score = sum(1 for i, q in enumerate(qs) if ans.get(i) == q["correct_answer"])
     pct = score / len(qs) * 100
 
-    # Шарики — один раз
     if not st.session_state.get("balloons_shown"):
         st.balloons()
         st.session_state.balloons_shown = True
@@ -205,6 +243,7 @@ else:
                     f"Осталось попыток: "
                     f"{max(0, assignment['max_attempts'] - 1)}"
                 )
+                
     if pct >= 80:
         st.success("🎉 Отлично! Высокий уровень знаний.")
     elif pct >= 60:
@@ -212,7 +251,6 @@ else:
     else:
         st.warning("📚 Стоит повторить материал.")
 
-    # Кнопки после результата
     c1, c2 = st.columns(2)
     with c1:
         if st.button("❌ Закрыть", type="primary", use_container_width=True):
@@ -222,7 +260,6 @@ else:
         if st.button("📊 Мои результаты", use_container_width=True):
             st.switch_page("pages/2_📊_Результаты.py")
 
-    # Детали
     with st.expander("📋 Детальный просмотр ответов"):
         for i, q in enumerate(qs):
             options = json.loads(q["options"])

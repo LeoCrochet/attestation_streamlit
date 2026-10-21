@@ -1,5 +1,7 @@
 """👥 Управление группами обучения и отчёты."""
 from datetime import datetime, date
+import time
+import random
 
 import pandas as pd
 import plotly.express as px
@@ -72,7 +74,7 @@ with tab_list:
 # ВКЛАДКА 2: СОЗДАНИЕ
 # ==================================================================
 with tab_create:
-    st.subheader("➕ Новая группа")
+    st.subheader("➕ Новая группа (по заявке)")
 
     all_users_for_curator = db.get_all_users(include_inactive=False)
     curator_options = {
@@ -84,13 +86,24 @@ with tab_create:
     }
 
     with st.form("create_group_form", clear_on_submit=True):
+        st.write("**Данные организации (Заказчика)**")
         c1, c2 = st.columns(2)
         with c1:
-            g_name = st.text_input("Название группы *", help="Например: П-21, Python-2026-01")
-            g_desc = st.text_area("Описание", height=80)
+            g_name = st.text_input("Название группы (для системы) *", help="Например: П-21")
+            org_name = st.text_input("Название организации (полное)")
+            org_address = st.text_area("Юридический/Почтовый адрес", height=68)
         with c2:
-            g_curator_label = st.selectbox("Куратор", list(curator_options.keys()))
-            g_start = st.date_input("Дата начала", value=date.today())
+            org_phone = st.text_input("Телефон")
+            org_email = st.text_input("E-mail")
+            manager_name = st.text_input("Руководитель организации (ФИО и должность)")
+
+        st.write("**Контактные данные и параметры**")
+        c3, c4 = st.columns(2)
+        with c3:
+            contact_person = st.text_input("Контактное лицо (ФИО)")
+            g_curator_label = st.selectbox("Куратор (Методист)", list(curator_options.keys()))
+        with c4:
+            g_start = st.date_input("Дата начала")
             g_end = st.date_input("Дата окончания", value=None)
 
         submitted = st.form_submit_button("✅ Создать", type="primary")
@@ -98,20 +111,25 @@ with tab_create:
         if submitted:
             if not g_name.strip():
                 st.error("Укажите название группы")
-            elif db.get_all_groups() and any(
-                g["name"].lower() == g_name.strip().lower()
-                for g in db.get_all_groups()
-            ):
-                st.error(f"Группа «{g_name}» уже существует")
             else:
+                # Сохраняем группу
                 gid = db.create_group(
                     name=g_name.strip(),
-                    description=g_desc.strip() or None,
+                    description=f"Организация: {org_name}",
                     curator_id=curator_options[g_curator_label],
-                    start_date=g_start,
-                    end_date=g_end,
-                    created_by=USER,
+                    start_date=g_start, end_date=g_end,
+                    created_by=USER
                 )
+                
+                # Дописываем данные организации (пока простым UPDATE)
+                db.execute_query("""
+                    UPDATE `groups` 
+                    SET organization_name=%s, organization_address=%s, 
+                        organization_phone=%s, organization_email=%s, 
+                        contact_person=%s, manager_name=%s
+                    WHERE id=%s
+                """, (org_name, org_address, org_phone, org_email, contact_person, manager_name, gid), commit=True)
+
                 db.log_action(USER_ID, "group_create", f"Создана группа: {g_name}")
                 st.success(f"✅ Группа создана (ID: {gid})")
                 st.rerun()
@@ -136,20 +154,42 @@ with tab_members:
 
     members = db.get_group_members(group["id"], only_active=True)
 
+    # --- ТАБЛИЦА УЧАСТНИКОВ ---
     if members:
         df_members = pd.DataFrame([
             {
                 "ID": m["user_id"],
-                "Логин": m["username"],
                 "ФИО": m["full_name"] or "—",
-                "Email": m["email"] or "—",
-                "Роль в группе": m["role_in_group"],
-                "В группе с": m["joined_at"].strftime("%d.%m.%Y") if m.get("joined_at") else "—",
+                "Профессия": m.get("profession") or "—",
+                "Образование": m.get("education") or "—",
+                "Год рожд.": m.get("birth_year") or "—",
+                "Вид обучения": m.get("training_type") or "—",
+                "Логин": m["username"],
+                "Роль": m["role_in_group"],
             }
             for m in members
         ])
         st.dataframe(df_members, use_container_width=True, hide_index=True)
 
+        # --- БЛОК СУРОГАТА (Тест от имени сотрудника) ---
+        st.divider()
+        st.subheader("🎯 Пройти тест от имени сотрудника")
+        st.write("Используйте эту функцию, если сотрудник не может пройти тест самостоятельно.")
+        
+        target_member = st.selectbox(
+            "Выберите сотрудника", 
+            options=members, 
+            format_func=lambda m: f"{m['full_name'] or m['username']} ({m.get('profession') or 'без профессии'})",
+            key="surrogate_target"
+        )
+        
+        if st.button("📝 Начать тест за сотрудника", type="primary", key="btn_surrogate"):
+            st.session_state["impersonate_user_id"] = target_member["user_id"]
+            st.session_state["impersonate_user_name"] = target_member["full_name"] or target_member["username"]
+            st.session_state["impersonate_group_id"] = group["id"]
+            st.switch_page("pages/1_📝_Тестирование.py")
+
+        # --- УДАЛЕНИЕ ИЗ ГРУППЫ ---
         st.divider()
         st.subheader("🚫 Удалить из группы")
         rm_map = {
@@ -166,10 +206,10 @@ with tab_members:
     else:
         st.info("В группе пока нет участников")
 
+    # --- ДОБАВЛЕНИЕ УЧАСТНИКА (ПО ОДНОМУ) ---
     st.divider()
-    st.subheader("➕ Добавить участника")
+    st.subheader("➕ Добавить одного участника вручную")
 
-    # Исключаем уже добавленных
     existing_ids = {m["user_id"] for m in members}
     all_users = db.get_all_users(include_inactive=False)
     candidates = [u for u in all_users if u["id"] not in existing_ids]
@@ -181,29 +221,118 @@ with tab_members:
             f"{u['full_name'] or u['username']} ({u['username']})": u["id"]
             for u in candidates
         }
-        c1, c2 = st.columns([3, 1])
+        
+        add_label = st.selectbox("Выберите пользователя", list(add_map.keys()), key="gm_add_user")
+        
+        c1, c2 = st.columns(2)
         with c1:
-            add_labels = st.multiselect(
-                "Выберите одного или несколько", list(add_map.keys()),
-                key="gm_add_multi",
-            )
+            profession = st.text_input("Профессия (разряд)", key="gm_prof")
+            education = st.text_input("Образование", key="gm_edu")
         with c2:
-            role_in_group = st.selectbox(
-                "Роль в группе", ["student", "assistant", "curator"],
-                key="gm_add_role",
+            birth_year = st.number_input("Год рождения", min_value=1940, max_value=2020, value=1990, step=1, key="gm_year")
+            training_type = st.selectbox(
+                "Вид обучения", 
+                ["Первичное", "Периодическая проверка", "Повышение квалификации"], 
+                key="gm_train"
             )
 
-        if st.button("✅ Добавить", type="primary", key="gm_add_btn"):
-            if not add_labels:
-                st.warning("Выберите хотя бы одного пользователя")
+        if st.button("✅ Добавить в группу", type="primary", key="gm_add_btn"):
+            if not add_label:
+                st.warning("Выберите пользователя")
             else:
-                added = 0
-                for lbl in add_labels:
-                    db.add_group_member(group["id"], add_map[lbl], role_in_group)
-                    added += 1
+                db.add_group_member(
+                    group_id=group["id"], 
+                    user_id=add_map[add_label], 
+                    role_in_group="student",
+                    profession=profession or None,
+                    education=education or None,
+                    birth_year=birth_year or None,
+                    training_type=training_type
+                )
                 db.log_action(USER_ID, "group_member_add",
-                              f"Добавлено в {group['name']}: {added}")
-                st.success(f"✅ Добавлено: {added}")
+                              f"Добавлен в {group['name']}: {add_label}")
+                st.success(f"✅ Пользователь добавлен")
+                st.rerun()
+
+    # --- МАССОВЫЙ ИМПОРТ ИЗ ЗАЯВКИ (EXCEL/CSV) ---
+    st.divider()
+    st.subheader("📥 Импорт заявки (Excel/CSV)")
+    st.write("Загрузите список сотрудников из заявки, и система автоматически создаст для них аккаунты и добавит в группу.")
+    
+    # Скачивание шаблона
+    template_df = pd.DataFrame({
+        "ФИО": ["Иванов Иван Иванович"], 
+        "Профессия": ["Электромонтер 4 разряда"], 
+        "Образование": ["Среднее специальное"], 
+        "Год рождения": [1985], 
+        "Вид обучения": ["Первичное"]
+    })
+    csv_template = template_df.to_csv(index=False, sep=';', encoding='utf-8-sig')
+    
+    st.download_button(
+        label="📄 Скачать шаблон заявки (CSV)",
+        data=csv_template.encode('utf-8-sig'),
+        file_name="shablon_zayavki.csv",
+        mime="text/csv",
+        help="Заполните этот файл в Excel и загрузите обратно"
+    )
+
+    # Загрузка файла
+    uploaded_file = st.file_uploader("Загрузите заполненную заявку", type=["xlsx", "csv"], key="application_uploader")
+    
+    if uploaded_file is not None:
+        if st.button("🚀 Импортировать сотрудников", type="primary", key="btn_import_app"):
+            from utils.import_application import parse_application_excel
+            
+            data, err = parse_application_excel(uploaded_file.read())
+            
+            if err:
+                st.error(err)
+            elif not data:
+                st.warning("В файле не найдено ни одного корректного ФИО")
+            else:
+                st.info(f"Файл прочитан. Найдено сотрудников: {len(data)}. Начинаю импорт...")
+                
+                added_count = 0
+                created_count = 0
+                
+                for person in data:
+                    fio = person["fio"]
+                    
+                    # Ищем пользователя по ФИО
+                    all_db_users = db.get_all_users(include_inactive=True)
+                    user = next((u for u in all_db_users if u["full_name"] and u["full_name"].strip().lower() == fio.strip().lower()), None)
+                    
+                    # Создаем, если нет
+                    if not user:
+                        username = f"student_{random.randint(10000, 99999)}"
+                        default_password = "123456"
+                        
+                        user_id = db.create_user(
+                            username=username,
+                            password=default_password,
+                            full_name=fio,
+                            role="user"
+                        )
+                        created_count += 1
+                    else:
+                        user_id = user["id"]
+                        
+                    # Добавляем в группу
+                    db.add_group_member(
+                        group_id=group["id"],
+                        user_id=user_id,
+                        role_in_group="student",
+                        profession=person["profession"],
+                        education=person["education"],
+                        birth_year=person["birth_year"],
+                        training_type=person["training_type"]
+                    )
+                    added_count += 1
+                
+                db.log_action(USER_ID, "group_bulk_import", f"Импорт заявки в {group['name']}: {added_count} чел.")
+                st.success(f"✅ Успешно добавлено: {added_count} чел. (Создано аккаунтов: {created_count})")
+                time.sleep(1.5)
                 st.rerun()
 
 

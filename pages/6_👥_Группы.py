@@ -13,6 +13,7 @@ from utils.protocol_io import (
     build_group_report_dataframe, build_protocol_dataframe,
     dataframe_to_csv_bytes, dataframe_to_excel_bytes,
 )
+from utils.excel_protocol import generate_protocol_xlsx
 
 st.set_page_config(page_title="Группы", page_icon="👥", layout="wide")
 require_login()
@@ -121,7 +122,7 @@ with tab_create:
                     created_by=USER
                 )
                 
-                # Дописываем данные организации (пока простым UPDATE)
+                # Дописываем данные организации
                 db.execute_query("""
                     UPDATE `groups` 
                     SET organization_name=%s, organization_address=%s, 
@@ -429,24 +430,22 @@ with tab_report:
                     use_container_width=True,
                 )
             with c2:
-                header_info = {
-                    "group": group["name"],
-                    "topic": topic_filter,
-                    "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
-                }
-                try:
-                    excel_bytes = dataframe_to_excel_bytes(
-                        df_det, sheet_name="Отчёт", header_info=header_info,
-                    )
-                    st.download_button(
-                        "📥 Скачать Excel",
-                        data=excel_bytes,
-                        file_name=f"report_{safe_group}_{timestamp}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                    )
-                except Exception as e:
-                    st.error(f"Ошибка генерации Excel: {e}")
+                # Генерируем файл протокола (Excel)
+                protocol_bytes = generate_protocol_xlsx(
+                    group=group, 
+                    members=members,
+                    detailed_results=detailed,
+                    date_str=datetime.now().strftime("%d.%m.%Y")
+                )
+                
+                st.download_button(
+                    "📄 Скачать ПРОТОКОЛ (Excel)",
+                    data=protocol_bytes,
+                    file_name=f"protocol_{safe_group}_{timestamp}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True,
+                )
 
 
 # ==================================================================
@@ -481,7 +480,6 @@ with tab_protocols:
         st.dataframe(df_p, use_container_width=True, hide_index=True)
     else:
         st.info("Протоколов пока нет")
-
     st.divider()
     st.subheader("➕ Создать протокол")
 

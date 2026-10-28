@@ -1153,9 +1153,12 @@ class Database:
 
     def get_group_results_detailed(self, group_id, topic=None,
                                    date_from=None, date_to=None):
+        """Детальные результаты всех участников группы."""
         cursor = self.get_cursor()
-        where = ["gm.group_id = %s", "gm.is_active = TRUE"]
-        params = [group_id]
+        
+        # Ищем результаты только для тех, кто сейчас в группе
+        where = ["gm.group_id = %s", "gm.is_active = TRUE", "r.group_id = %s"]
+        params = [group_id, group_id] # Передаем group_id дважды: для gm и для r
 
         if topic:
             where.append("r.topic = %s")

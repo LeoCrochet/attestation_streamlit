@@ -63,3 +63,6 @@ Thumbs.db
 
 # ===== Streamlit =====
 .streamlit/secrets.toml
+packages_transfer/
+*.zip
+venv/

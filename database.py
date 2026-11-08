@@ -411,6 +411,18 @@ class Database:
         self.execute_query(f"UPDATE questions SET is_active = FALSE, updated_by = %s WHERE id IN ({ids_str})", [deleted_by] + list(question_ids), commit=True)
         return len(question_ids)
 
+    def bulk_restore_questions(self, question_ids, updated_by=None):
+        """Восстановить вопросы из архива (is_active = TRUE)."""
+        if not question_ids:
+            return 0
+        ids_str = ",".join(["%s"] * len(question_ids))
+        self.execute_query(
+            f"UPDATE questions SET is_active = TRUE, updated_by = %s WHERE id IN ({ids_str})",
+            [updated_by] + list(question_ids),
+            commit=True
+        )
+        return len(question_ids)
+    
     def bulk_update_topic(self, question_ids, new_topic, updated_by=None):
         if not question_ids: return 0
         ids_str = ",".join(["%s"] * len(question_ids))

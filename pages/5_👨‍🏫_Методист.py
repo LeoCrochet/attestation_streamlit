@@ -4,7 +4,7 @@ import json as _json
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-
+from utils.session import restore_session
 from database import Database
 from utils.auth import require_methodist
 from utils.question_io import (
@@ -15,6 +15,7 @@ from utils.question_io import (
 )
 
 st.set_page_config(page_title="Кабинет методиста", page_icon="👨‍🏫", layout="wide")
+restore_session()
 require_methodist()
 
 

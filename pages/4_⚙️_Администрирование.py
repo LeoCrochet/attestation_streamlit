@@ -1,7 +1,7 @@
 """⚙️ Администрирование: управление пользователями."""
 import streamlit as st
 import pandas as pd
-
+from utils.session import restore_session
 from database import Database
 from utils.user_io import (
     ROLES, role_label,
@@ -10,7 +10,7 @@ from utils.user_io import (
 )
 
 st.set_page_config(page_title="Администрирование", page_icon="⚙️", layout="wide")
-
+restore_session()
 # --- Проверка прав ---
 if not st.session_state.get("authenticated"):
     st.warning("⚠️ Войдите в систему")

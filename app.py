@@ -1,5 +1,6 @@
 import streamlit as st
 from database import Database
+from utils.session import restore_session, clear_session
 
 st.set_page_config(
     page_title="Система аттестации",
@@ -8,30 +9,16 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# 1. Восстанавливаем сессию (если обновили страницу)
+restore_session()
+
 @st.cache_resource
 def get_db():
     return Database()
 
 db = get_db()
 
-# =========================================================
-# ВОССТАНОВЛЕНИЕ СЕССИИ ИЗ URL (чтобы не вылетало при F5)
-# =========================================================
-if "user_id" not in st.session_state or st.session_state.user_id is None:
-    if "user_id" in st.query_params:
-        try:
-            uid = int(st.query_params["user_id"])
-            user = db.get_user_by_id(uid)
-            if user:
-                st.session_state.authenticated = True
-                st.session_state.user = user["username"]
-                st.session_state.user_id = user["id"]
-                st.session_state.role = user["role"]
-                st.session_state.full_name = user["full_name"]
-        except Exception:
-            pass
-
-# Инициализация полей сессии
+# 2. Инициализация полей сессии по умолчанию
 for key, default in [
     ("authenticated", False),
     ("user", None),
@@ -42,11 +29,12 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
+
 def logout():
-    st.query_params.clear() # Очищаем URL
-    for k in ("authenticated", "user", "user_id", "role", "full_name"):
-        st.session_state[k] = None
+    """Выход из системы"""
+    clear_session()
     st.rerun()
+
 
 # =========================================================
 # БОКОВАЯ ПАНЕЛЬ
@@ -86,10 +74,12 @@ with st.sidebar:
                     st.session_state.role = user["role"]
                     st.session_state.full_name = user["full_name"]
                     
+                    # Сохраняем ID в URL
                     st.query_params["user_id"] = str(user["id"])
                     st.rerun()
                 else:
                     st.error("❌ Неверный логин или пароль")
+
 
 # =========================================================
 # ГЛАВНАЯ СТРАНИЦА

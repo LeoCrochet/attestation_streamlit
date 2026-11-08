@@ -14,8 +14,9 @@ from utils.protocol_io import (
     dataframe_to_csv_bytes, dataframe_to_excel_bytes,
 )
 from utils.excel_protocol import generate_protocol_xlsx
-
+from utils.session import restore_session
 st.set_page_config(page_title="Группы", page_icon="👥", layout="wide")
+restore_session()
 require_login()
 
 if st.session_state.get("role") not in ("methodist", "admin", "manager"):

@@ -1,8 +1,10 @@
 import streamlit as st
 from database import Database
 from utils.auth import require_login
+from utils.session import restore_session
 
 st.set_page_config(page_title="Профиль", page_icon="👤", layout="wide")
+restore_session()
 require_login()
 
 @st.cache_resource

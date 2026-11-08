@@ -69,7 +69,46 @@ with tab_list:
             for g in groups
         ])
         st.dataframe(df, use_container_width=True, hide_index=True)
-
+# --- УПРАВЛЕНИЕ УДАЛЕНИЕМ ГРУПП ---
+    if groups:
+        st.divider()
+        st.subheader("🗑️ Удаление группы")
+        
+        group_to_del_map = {f"#{g['id']} — {g['name']}": g for g in groups}
+        selected_del_label = st.selectbox("Выберите группу для удаления", list(group_to_del_map.keys()), key="del_group_sel")
+        selected_del_group = group_to_del_map[selected_del_label]
+        
+        c1, c2 = st.columns(2)
+        
+        # 1. Мягкое удаление (Архивация)
+        with c1:
+            if selected_del_group["is_active"]:
+                if st.button("🚫 Деактивировать (в архив)", use_container_width=True):
+                    db.deactivate_group(selected_del_group["id"])
+                    db.log_action(USER_ID, "group_deactivate", f"Группа в архиве: {selected_del_group['name']}")
+                    st.success("Группа перемещена в архив")
+                    st.rerun()
+            else:
+                st.info("Группа уже в архиве")
+                
+        # 2. Полное удаление (Hard Delete)
+        with c2:
+            confirm_key = f"confirm_del_grp_{selected_del_group['id']}"
+            if st.session_state.get(confirm_key):
+                st.warning(f"⚠️ Удалить **«{selected_del_group['name']}»** навсегда? Все результаты и задания будут удалены!")
+                if st.button("🔥 Да, удалить навсегда", type="primary", use_container_width=True):
+                    db.hard_delete_group(selected_del_group["id"])
+                    db.log_action(USER_ID, "group_hard_delete", f"Группа удалена: {selected_del_group['name']}")
+                    st.session_state.pop(confirm_key, None)
+                    st.success("Группа удалена из базы")
+                    st.rerun()
+                if st.button("Отмена", use_container_width=True):
+                    st.session_state.pop(confirm_key, None)
+                    st.rerun()
+            else:
+                if st.button("🗑️ Удалить навсегда", use_container_width=True):
+                    st.session_state[confirm_key] = True
+                    st.rerun()
 
 # ==================================================================
 # ВКЛАДКА 2: СОЗДАНИЕ

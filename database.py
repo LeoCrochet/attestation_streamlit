@@ -564,6 +564,16 @@ class Database:
     def deactivate_group(self, group_id):
         return self.update_group(group_id, is_active=False)
 
+    def hard_delete_group(self, group_id):
+        """Полное удаление группы и всех её данных (участники, задания, протоколы)."""
+        # Сначала удаляем связанные данные (на всякий случай, если нет каскадного удаления)
+        self.execute_query("DELETE FROM protocols WHERE group_id = %s", (group_id,), commit=True)
+        self.execute_query("DELETE FROM assignments WHERE group_id = %s", (group_id,), commit=True)
+        self.execute_query("DELETE FROM group_members WHERE group_id = %s", (group_id,), commit=True)
+        # Удаляем саму группу
+        self.execute_query("DELETE FROM `groups` WHERE id = %s", (group_id,), commit=True)
+        return True
+
     def add_group_member(self, group_id, user_id, role_in_group="student", profession=None, education=None, birth_year=None, training_type=None):
         cursor = self.get_cursor()
         cursor.execute("SELECT id, is_active FROM group_members WHERE group_id = %s AND user_id = %s", (group_id, user_id))

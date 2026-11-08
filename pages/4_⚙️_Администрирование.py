@@ -257,3 +257,55 @@ if users:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Ошибка: {e}")
+
+        # --- ИНДИВИДУАЛЬНОЕ УДАЛЕНИЕ ---
+    if not is_self:
+        st.divider()
+        st.error("⚠️ **Опасная зона**")
+        
+        c1, c2 = st.columns(2)
+        
+        # 1. Деактивация (мягкое удаление)
+        with c1:
+            if selected["is_active"]:
+                confirm_deact_key = f"confirm_deactivate_{selected['id']}"
+                if st.session_state.get(confirm_deact_key):
+                    st.warning(f"Деактивировать **{selected['username']}**?")
+                    if st.button("Да, деактивировать", type="primary", use_container_width=True):
+                        db.deactivate_user(selected["id"])
+                        db.log_action(USER_ID, "user_deactivate", f"Деактивирован: {selected['username']}")
+                        st.session_state.pop(confirm_deact_key, None)
+                        st.success("Пользователь деактивирован")
+                        st.rerun()
+                    if st.button("Отмена", use_container_width=True):
+                        st.session_state.pop(confirm_deact_key, None)
+                        st.rerun()
+                else:
+                    if st.button("🚫 Деактивировать (заблокировать)", use_container_width=True):
+                        st.session_state[confirm_deact_key] = True
+                        st.rerun()
+            else:
+                st.info("Пользователь уже деактивирован")
+
+        # 2. Полное удаление (Hard Delete)
+        with c2:
+            confirm_hard_key = f"confirm_hard_delete_{selected['id']}"
+            
+            if st.session_state.get(confirm_hard_key):
+                st.warning(f"Вы уверены, что хотите **НАВСЕГДА** удалить **{selected['username']}**?")
+                if st.button("🔥 Да, удалить навсегда", type="primary", use_container_width=True):
+                    db.hard_delete_user(selected["id"])
+                    db.log_action(USER_ID, "user_hard_delete", f"Удален навсегда: {selected['username']}")
+                    st.session_state.pop(confirm_hard_key, None)
+                    st.success("Пользователь удален навсегда")
+                    st.rerun()
+                if st.button("Отмена (удаление)", use_container_width=True):
+                    st.session_state.pop(confirm_hard_key, None)
+                    st.rerun()
+            else:
+                if st.button("🗑️ Удалить навсегда", use_container_width=True):
+                    st.session_state[confirm_hard_key] = True
+                    st.rerun()
+
+    if is_self:
+        st.info("ℹ️ Вы редактируете свою учётную запись. Роль, статус и удаление недоступны.")                

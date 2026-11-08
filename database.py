@@ -224,11 +224,20 @@ class Database:
         return cursor.fetchone()
 
     def get_all_users(self, include_inactive=False):
+        """Все пользователи (для админки) с их группами."""
         cursor = self.get_cursor()
-        q = "SELECT id, username, email, full_name, role, department, position, is_active, created_at, last_login FROM users"
+        q = """
+            SELECT u.id, u.username, u.email, u.full_name, u.role, u.department, 
+                   u.position, u.is_active, u.created_at, u.last_login,
+                   GROUP_CONCAT(g.name SEPARATOR ', ') AS groups_list
+            FROM users u
+            LEFT JOIN group_members gm ON u.id = gm.user_id AND gm.is_active = TRUE
+            LEFT JOIN `groups` g ON gm.group_id = g.id
+        """
         if not include_inactive:
-            q += " WHERE is_active = TRUE"
-        q += " ORDER BY id"
+            q += " WHERE u.is_active = TRUE"
+        
+        q += " GROUP BY u.id ORDER BY u.id"
         cursor.execute(q)
         return cursor.fetchall()
 

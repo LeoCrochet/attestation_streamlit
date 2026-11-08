@@ -18,27 +18,22 @@ def get_db():
 
 db = get_db()
 
-
 # =========================================================
 # 🥷 БЛОК СУРОГАТА (Прохождение теста за сотрудника)
 # =========================================================
 if "impersonate_user_id" in st.session_state:
-    # Сохраняем данные методиста, чтобы вернуть их потом
     if "real_user_id" not in st.session_state:
         st.session_state.real_user_id = st.session_state.user_id
         st.session_state.real_user = st.session_state.user
         st.session_state.real_full_name = st.session_state.full_name
 
-    # Подменяем личность на студента
     st.session_state.user_id = st.session_state.impersonate_user_id
     st.session_state.user = st.session_state.impersonate_user_name
     st.session_state.full_name = st.session_state.impersonate_user_name
 
-    # Предупреждение для методиста
     st.warning(f"👨‍🏫 **Режим Методиста:** Вы проходите тест от имени сотрудника **{st.session_state.full_name}**.")
     
     if st.button("❌ Выйти из режима сурогата (вернуться к группам)"):
-        # Возвращаем всё как было
         st.session_state.user_id = st.session_state.pop("real_user_id")
         st.session_state.user = st.session_state.pop("real_user")
         st.session_state.full_name = st.session_state.pop("real_full_name")
@@ -48,8 +43,7 @@ if "impersonate_user_id" in st.session_state:
         if "impersonate_group_id" in st.session_state:
             del st.session_state["impersonate_group_id"]
             
-        # Сбрасываем тест, если он шел
-        for key in ("test_questions", "answers", "current_q", "test_finished", "test_start"):
+        for key in ("test_questions", "answers", "current_q", "test_finished", "test_start", "test_end_time"):
             st.session_state.pop(key, None)
             
         st.switch_page("pages/6_👥_Группы.py")
@@ -66,6 +60,7 @@ def _reset_test_state():
         "balloons_shown",
         "assignment_id",
         "assignment_time_limit",
+        "test_end_time", # <--- Добавили ключ для таймера
     ):
         st.session_state.pop(key, None)
 
@@ -74,7 +69,6 @@ st.title("📝 Тестирование")
 
 
 # ========== АКТИВНЫЕ ЗАДАНИЯ ==========
-# Загружаем задания для того пользователя, от чьего имени мы сейчас работаем
 if not st.session_state.get("test_questions"):
     user_assignments = db.get_user_assignments(st.session_state.user_id, only_active=True)
     if user_assignments:
@@ -122,10 +116,17 @@ if not st.session_state.get("test_questions"):
                             st.session_state.test_finished = False
                             st.session_state.assignment_id = a["id"]
                             st.session_state.assignment_time_limit = a.get("time_limit_min")
+                            
+                            # --- Устанавливаем время окончания ---
+                            time_limit = a.get("time_limit_min")
+                            if time_limit and time_limit > 0:
+                                st.session_state.test_end_time = time.time() + (time_limit * 60)
+                            # ------------------------------------
+                            
                             st.rerun()
         st.divider()
 
-# ========== ЭКРАН 1: ВЫБОР И СТАРТ (Свободный тест) ==========
+# ========== ЭКРАН 1: ВЫБОР И СТАРТ ==========
 if not st.session_state.get("test_questions"):
     topics = ["Все темы"] + db.get_all_topics()
 
@@ -160,6 +161,52 @@ elif not st.session_state.get("test_finished"):
     idx = st.session_state.current_q
     q = qs[idx]
 
+     # --- БЛОК ТАЙМЕРА ---
+    if st.session_state.get("test_end_time"):
+        # Создаем фрагмент, который обновляется каждую секунду
+        @st.fragment(run_every=1.0)
+        def show_timer():
+            remaining = int(st.session_state.test_end_time - time.time())
+            if remaining > 0:
+                mins, secs = divmod(remaining, 60)
+                st.warning(f"⏳ **Осталось времени:** {mins:02d}:{secs:02d}")
+            else:
+                st.error("⏰ **Время вышло!** Тест завершен автоматически.")
+                # Автоматически сохраняем результат
+                qs = st.session_state.test_questions
+                score = sum(
+                    1 for i, qq in enumerate(qs)
+                    if st.session_state.answers.get(i) == qq["correct_answer"]
+                )
+                assignment_id = st.session_state.get("assignment_id")
+                group_id = None
+                if assignment_id:
+                    assignment = db.get_assignment(assignment_id)
+                    group_id = assignment["group_id"] if assignment else None
+                elif "impersonate_group_id" in st.session_state:
+                    group_id = st.session_state["impersonate_group_id"]
+                else:
+                    user_groups = db.get_user_groups(st.session_state.user_id)
+                    group_id = user_groups[0]["id"] if len(user_groups) == 1 else None
+
+                db.save_result(
+                    user_id=st.session_state.user_id,
+                    user_name=st.session_state.user,
+                    topic=st.session_state.get("test_topic", "Все"),
+                    answers=st.session_state.answers,
+                    score=score,
+                    total=len(qs),
+                    time_spent=int(time.time() - st.session_state.test_start),
+                    group_id=group_id,
+                    assignment_id=assignment_id,
+                )
+                st.session_state.test_finished = True
+                st.session_state.balloons_shown = False
+                st.rerun()
+
+        show_timer()
+    # ---------------------
+
     st.progress(idx / len(qs), text=f"Вопрос {idx + 1} из {len(qs)}")
     st.subheader(q["question"])
 
@@ -187,16 +234,11 @@ elif not st.session_state.get("test_finished"):
 
                 assignment_id = st.session_state.get("assignment_id")
                 
-                # Если это тест по заданию
                 if assignment_id:
                     assignment = db.get_assignment(assignment_id)
                     group_id = assignment["group_id"] if assignment else None
-                
-                # Если это тест в режиме сурогата
                 elif "impersonate_group_id" in st.session_state:
                     group_id = st.session_state["impersonate_group_id"]
-                
-                # Обычный свободный тест
                 else:
                     user_groups = db.get_user_groups(st.session_state.user_id)
                     group_id = user_groups[0]["id"] if len(user_groups) == 1 else None

@@ -554,6 +554,37 @@ class Database:
         cursor = self.get_cursor()
         cursor.execute("SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT %s", (limit,))
         return cursor.fetchall()
+    
+    def get_global_statistics_by_profession(self):
+        """Статистика сдачи тестов в разрезе профессий."""
+        cursor = self.get_cursor()
+        cursor.execute("""
+            SELECT 
+                gm.profession,
+                COUNT(DISTINCT gm.user_id) as total_students,
+                COUNT(r.id) as total_tests,
+                AVG(r.score * 100.0 / NULLIF(r.total_questions, 0)) as avg_score
+            FROM group_members gm
+            JOIN results r ON r.user_id = gm.user_id
+            WHERE gm.profession IS NOT NULL AND gm.profession != ''
+            GROUP BY gm.profession
+            ORDER BY avg_score DESC
+        """)
+        return cursor.fetchall()
+
+    def get_global_statistics_by_month(self):
+        """Статистика сдачи тестов по месяцам."""
+        cursor = self.get_cursor()
+        cursor.execute("""
+            SELECT 
+                DATE_FORMAT(date, '%Y-%m') as month,
+                COUNT(*) as total_tests,
+                AVG(score * 100.0 / NULLIF(total_questions, 0)) as avg_score
+            FROM results
+            GROUP BY DATE_FORMAT(date, '%Y-%m')
+            ORDER BY month ASC
+        """)
+        return cursor.fetchall()
 
     # ==================================================================
     # ГРУППЫ ОБУЧЕНИЯ

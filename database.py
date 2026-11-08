@@ -490,9 +490,18 @@ class Database:
 
     def create_assignment(self, group_id, topic=None, num_questions=10, max_attempts=1, time_limit_min=None, pass_score=60, title=None, description=None, due_date=None, created_by=None):
         cursor = self.get_cursor()
-        self.execute_query("INSERT INTO assignments (group_id, topic, num_questions, max_attempts, time_limit_min, pass_score, title, description, due_date, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (group_id, topic, num_questions, max_attempts, time_limit_min, pass_score, title, description, due_date, created_by), commit=True)
-        return cursor.lastrowid
+        try:
+            cursor.execute(
+                "INSERT INTO assignments (group_id, topic, num_questions, max_attempts, time_limit_min, pass_score, title, description, due_date, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (group_id, topic, num_questions, max_attempts, time_limit_min, pass_score, title, description, due_date, created_by)
+            )
+            self.connection.commit()
+            return cursor.lastrowid
+        except Error as e:
+            self.connection.rollback()
+            logger.error(f"❌ Error creating assignment: {e}")
+            print(f"❌ [create_assignment] ОШИБКА: {e}", flush=True)
+            return None
 
     def get_assignment(self, assignment_id):
         cursor = self.get_cursor()
@@ -563,8 +572,23 @@ class Database:
 
     def create_group(self, name, description=None, curator_id=None, start_date=None, end_date=None, created_by=None):
         cursor = self.get_cursor()
-        self.execute_query("INSERT INTO `groups` (name, description, curator_id, start_date, end_date, created_by) VALUES (%s, %s, %s, %s, %s, %s)", (name, description, curator_id, start_date, end_date, created_by), commit=True)
-        return cursor.lastrowid
+        try:
+            cursor.execute(
+                "INSERT INTO `groups` (name, description, curator_id, start_date, end_date, created_by) VALUES (%s, %s, %s, %s, %s, %s)",
+                (name, description, curator_id, start_date, end_date, created_by)
+            )
+            self.connection.commit()
+            
+            # Получаем ID только что созданной группы по её имени
+            cursor.execute("SELECT id FROM `groups` WHERE name = %s", (name,))
+            row = cursor.fetchone()
+            return row["id"] if row else None
+            
+        except Error as e:
+            self.connection.rollback()
+            logger.error(f"❌ Error creating group: {e}")
+            print(f"❌ [create_group] ОШИБКА: {e}", flush=True) # <--- ВЫВОД В КОНСОЛЬ
+            return None
 
     def update_group(self, group_id, **fields):
         if not fields: return False

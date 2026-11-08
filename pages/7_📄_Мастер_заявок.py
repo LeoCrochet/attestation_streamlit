@@ -7,6 +7,7 @@ from database import Database
 from utils.auth import require_methodist
 from utils.import_application import parse_application_excel
 from utils.import_word import parse_application_word
+from datetime import date
 
 st.set_page_config(page_title="Мастер заявок", page_icon="📄", layout="wide")
 restore_session()
@@ -71,6 +72,7 @@ if uploaded_file is not None:
                 group_name = st.text_input("Название группы *", value=default_name)
                 org_name = st.text_input("Организация (Заказчик)")
                 org_address = st.text_area("Адрес", height=68)
+                g_start_date = st.date_input("Дата начала обучения", value=date.today())
             with c2:
                 manager_name = st.text_input("Руководитель организации")
                 contact_person = st.text_input("Контактное лицо")
@@ -97,9 +99,10 @@ if uploaded_file is not None:
                     try:
                         # 1. Создаем группу
                         gid = db.create_group(
-                            name=str(group_name.strip()),
-                            description=str(f"Организация: {org_name}"),
-                            created_by=str(st.session_state.user)
+                            name=group_name.strip(),
+                            description=f"Организация: {org_name}",
+                            created_by=st.session_state.user,
+                            start_date=g_start_date # <--- ПЕРЕДАЕМ ДАТУ
                         )
                         
                         if not gid:

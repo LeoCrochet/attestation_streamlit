@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import secrets
+import datetime
 
 import mysql.connector
 from mysql.connector import Error
@@ -579,7 +580,6 @@ class Database:
             )
             self.connection.commit()
             
-            # Получаем ID только что созданной группы по её имени
             cursor.execute("SELECT id FROM `groups` WHERE name = %s", (name,))
             row = cursor.fetchone()
             return row["id"] if row else None
@@ -587,7 +587,6 @@ class Database:
         except Error as e:
             self.connection.rollback()
             logger.error(f"❌ Error creating group: {e}")
-            print(f"❌ [create_group] ОШИБКА: {e}", flush=True) # <--- ВЫВОД В КОНСОЛЬ
             return None
 
     def update_group(self, group_id, **fields):
@@ -673,6 +672,61 @@ class Database:
         cursor.execute("SELECT * FROM protocols WHERE group_id = %s ORDER BY started_at DESC", (group_id,))
         return cursor.fetchall()
 
+    def finish_group_training(self, group_id, closed_by):
+        """Закрыть обучение группы и создать финальный протокол."""
+        cursor = self.get_cursor()
+        try:
+            # Берем дату начала из самой группы, если она есть. Если нет — текущую.
+            cursor.execute("SELECT start_date FROM `groups` WHERE id = %s", (group_id,))
+            group_row = cursor.fetchone()
+            started_at = group_row["start_date"] if group_row and group_row["start_date"] else datetime.datetime.now()
+
+            cursor.execute("""
+                INSERT INTO protocols (group_id, title, description, status, started_at, closed_at, created_by, closed_by)
+                VALUES (%s, %s, %s, 'closed', %s, CURRENT_TIMESTAMP, %s, %s)
+            """, (group_id, "Итоговый протокол по группе", "Сформирован при завершении обучения", started_at, closed_by, closed_by))
+            self.connection.commit()
+            protocol_id = cursor.lastrowid
+            
+            self.execute_query("UPDATE assignments SET status = 'closed' WHERE group_id = %s AND status = 'open'", (group_id,), commit=True)
+            self.update_group(group_id, is_active=False)
+            return protocol_id
+        except Error as e:
+            self.connection.rollback()
+            logger.error(f"❌ Error finishing group: {e}")
+            return None
+
+    def save_protocol_file_path(self, protocol_id, file_path):
+        """Сохранить путь к сгенерированному файлу протокола."""
+        self.execute_query("UPDATE protocols SET file_path = %s WHERE id = %s", (file_path, protocol_id), commit=True)
+        return True
+
     def close_protocol(self, protocol_id):
         self.execute_query("UPDATE protocols SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = %s", (protocol_id,), commit=True)
         return True
+    
+    def delete_protocol(self, protocol_id):
+        """Удалить протокол и вернуть группу в активный статус."""
+        cursor = self.get_cursor()
+        try:
+            # 1. Узнаем, к какой группе относится протокол
+            cursor.execute("SELECT group_id FROM protocols WHERE id = %s", (protocol_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                group_id = row["group_id"]
+                
+                # 2. Возвращаем группу в активный статус
+                self.update_group(group_id, is_active=True)
+                
+                # 3. Открываем задания группы заново
+                self.execute_query("UPDATE assignments SET status = 'open' WHERE group_id = %s", (group_id,), commit=True)
+
+            # 4. Удаляем сам протокол
+            self.execute_query("DELETE FROM protocols WHERE id = %s", (protocol_id,), commit=True)
+            return True
+            
+        except Error as e:
+            self.connection.rollback()
+            logger.error(f"❌ Error deleting protocol: {e}")
+            return False

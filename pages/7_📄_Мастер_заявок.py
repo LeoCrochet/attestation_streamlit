@@ -1,6 +1,7 @@
 """📄 Мастер заявок — автоматическое создание группы и задания."""
 import streamlit as st
 import pandas as pd
+import os  # <-- Добавлен импорт
 from datetime import datetime, date
 from collections import Counter
 
@@ -35,11 +36,35 @@ def _clean(val):
 st.title("📄 Мастер заявок")
 st.caption("Загрузите заявку, чтобы автоматически создать группу, участников и задание")
 
+st.info(
+    "📌 **Важно!** После создания группы не забудьте загрузить сканы подписанных документов "
+    "(заявку, распоряжение и т.д.) в раздел **«👥 Группы» → «📎 Документы»**."
+)
+
 # ==================================================================
-# 1. ЗАГРУЗКА ФАЙЛА
+# 1. ЗАГРУЗКА ФАЙЛА И СКАЧИВАНИЕ ШАБЛОНА
 # ==================================================================
 st.subheader("1. Загрузите заявку")
 st.write("Поддерживаются форматы Excel (.xlsx), CSV (.csv) и Word (.docx).")
+
+# --- Кнопка скачивания утвержденного шаблона ---
+c1, c2 = st.columns([1, 2])
+with c1:
+    template_path = "templates/application_template.docx"
+    if os.path.exists(template_path):
+        with open(template_path, "rb") as f:
+            template_bytes = f.read()
+            
+        st.download_button(
+            label="📄 Скачать шаблон (Word)",
+            data=template_bytes,
+            file_name="Заявка_на_обучение_шаблон.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            help="Скачайте утвержденный бланк заявки, заполните его и загрузите обратно",
+            type="primary"
+        )
+    else:
+        st.error("⚠️ Файл шаблона не найден (templates/application_template.docx)")
 
 uploaded_file = st.file_uploader("Выберите файл заявки", type=["xlsx", "csv", "docx"])
 
@@ -47,7 +72,7 @@ if uploaded_file is not None:
     file_bytes = uploaded_file.read()
     fname = uploaded_file.name.lower()
     
-    # Парсим файл (теперь для Word возвращаются 3 значения)
+    # Парсим файл (для Word возвращаются 3 значения)
     if fname.endswith(".docx"):
         data, meta, err = parse_application_word(file_bytes)
     else:
@@ -125,7 +150,7 @@ if uploaded_file is not None:
                             description=f"Организация: {org_name}",
                             created_by=st.session_state.user,
                             start_date=g_start_date,
-                            end_date=g_end_date  # <-- ДОБАВЛЯЕМ СЮДА
+                            end_date=g_end_date
                         )
                         
                         if not gid:

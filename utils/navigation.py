@@ -6,12 +6,14 @@ from utils.session import clear_session
 NAV_ITEMS = [
     ("pages/0_📈_Дашборд.py",            "Дашборд",           "📈", {"methodist", "admin"}),
     ("pages/1_📝_Тестирование.py",        "Тестирование",      "📝", {"user", "manager", "methodist", "admin"}),
-    ("pages/2_📊_Результаты.py",          "Результаты",    "📊", {"user", "manager", "methodist", "admin"}),
+    ("pages/2_📊_Результаты.py",          "Результаты",        "📊", {"user", "manager", "methodist", "admin"}),
     ("pages/3_👤_Профиль.py",             "Профиль",           "👤", {"user", "manager", "methodist", "admin"}),
     ("pages/4_⚙️_Администрирование.py",   "Администрирование", "⚙️", {"admin"}),
     ("pages/5_👨‍🏫_Методист.py",           "Кабинет методиста", "👨‍🏫", {"methodist", "admin"}),
     ("pages/6_👥_Группы.py",              "Группы обучения",   "👥", {"methodist", "admin", "manager"}),
     ("pages/7_📄_Мастер_заявок.py",       "Мастер заявок",     "📄", {"methodist", "admin"}),
+    ("pages/8_🎯_Сурогат.py",             "Режим сурогата",    "🎯", {"methodist", "admin"}),
+    # Не добавляем 9_👤_Состав_группы.py в меню, чтобы туда не переходили напрямую
 ]
 
 ROLE_LABELS = {

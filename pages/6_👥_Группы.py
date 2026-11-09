@@ -4,7 +4,6 @@ import time
 import random
 import os
 import json
-import shutil
 
 import pandas as pd
 import plotly.express as px
@@ -22,6 +21,8 @@ from utils.session import restore_session
 
 st.set_page_config(page_title="Группы", page_icon="👥", layout="wide")
 restore_session()
+from utils.navigation import setup_page
+setup_page()
 require_login()
 
 if st.session_state.get("role") not in ("methodist", "admin", "manager"):
@@ -52,7 +53,6 @@ def show_answers_dialog(result_id):
 
     answers = json.loads(res['answers']) if isinstance(res['answers'], str) else res['answers']
     
-    # Защита от старого формата
     if isinstance(answers, dict):
         st.warning("⚠️ Это старый формат ответов. Пройдите тест заново, чтобы увидеть детали.")
         return
@@ -79,7 +79,6 @@ def show_answers_dialog(result_id):
         
         st.divider()
 
-    # Кнопка экспорта в Word
     try:
         word_bytes = generate_answers_word(
             user_name=res['full_name'] or res['username'],
@@ -135,7 +134,6 @@ with tab_list:
         ])
         st.dataframe(df, use_container_width=True, hide_index=True)
 
-    # --- УПРАВЛЕНИЕ УДАЛЕНИЕМ ГРУПП ---
     if groups:
         st.divider()
         st.subheader("🗑️ Удаление группы")
@@ -146,7 +144,6 @@ with tab_list:
         
         c1, c2 = st.columns(2)
         
-        # 1. Мягкое удаление (Архивация)
         with c1:
             if selected_del_group["is_active"]:
                 if st.button("🚫 Деактивировать (в архив)", use_container_width=True):
@@ -178,7 +175,6 @@ with tab_list:
             else:
                 st.info("Группа уже в архиве")
                 
-        # 2. Полное удаление (Hard Delete)
         with c2:
             confirm_key = f"confirm_del_grp_{selected_del_group['id']}"
             if st.session_state.get(confirm_key):
@@ -278,7 +274,6 @@ with tab_members:
 
     members = db.get_group_members(group["id"], only_active=True)
 
-    # --- БЛОК ЗАВЕРШЕНИЯ ОБУЧЕНИЯ ---
     if group["is_active"]:
         st.warning("⚠️ **Внимание!** Завершение обучения заблокирует пересдачи и сгенерирует итоговый протокол.")
         
@@ -310,7 +305,6 @@ with tab_members:
     else:
         st.info("🏁 Обучение по этой группе завершено. Редактирование состава заблокировано.")
 
-    # --- ТАБЛИЦА УЧАСТНИКОВ ---
     if members:
         df_members = pd.DataFrame([
             {
@@ -327,7 +321,6 @@ with tab_members:
         ])
         st.dataframe(df_members, use_container_width=True, hide_index=True)
 
-        # --- БЛОК СУРОГАТА ---
         st.divider()
         st.subheader("🎯 Пройти тест от имени сотрудника")
         
@@ -347,7 +340,6 @@ with tab_members:
         else:
             st.info("🔒 Обучение завершено. Прохождение тестов заблокировано.")
 
-        # --- УДАЛЕНИЕ ИЗ ГРУППЫ ---
         st.divider()
         st.subheader("🚫 Удалить из группы")
         
@@ -368,7 +360,6 @@ with tab_members:
     else:
         st.info("В группе пока нет участников")
 
-    # --- ДОБАВЛЕНИЕ УЧАСТНИКА ---
     st.divider()
     st.subheader("➕ Добавить одного участника вручную")
 
@@ -387,39 +378,44 @@ with tab_members:
             
             add_label = st.selectbox("Выберите пользователя", list(add_map.keys()), key="gm_add_user")
             
-            c1, c2 = st.columns(2)
-            with c1:
-                profession = st.text_input("Профессия (разряд)", key="gm_prof")
-                education = st.text_input("Образование", key="gm_edu")
-            with c2:
-                birth_year = st.number_input("Год рождения", min_value=1940, max_value=2020, value=1990, step=1, key="gm_year")
-                training_type = st.selectbox(
-                    "Вид обучения", 
-                    ["Первичное", "Периодическая проверка", "Повышение квалификации"], 
-                    key="gm_train"
-                )
-
-            if st.button("✅ Добавить в группу", type="primary", key="gm_add_btn"):
-                if not add_label:
-                    st.warning("Выберите пользователя")
-                else:
-                    db.add_group_member(
-                        group_id=group["id"], 
-                        user_id=add_map[add_label], 
-                        role_in_group="student",
-                        profession=profession or None,
-                        education=education or None,
-                        birth_year=birth_year or None,
-                        training_type=training_type
-                    )
-                    db.log_action(USER_ID, "group_member_add",
-                                  f"Добавлен в {group['name']}: {add_label}")
-                    st.success(f"✅ Пользователь добавлен")
-                    st.rerun()
+            if add_label:
+                user_id = add_map[add_label]
+                selected_user = next((u for u in candidates if u["id"] == user_id), None)
+                
+                if selected_user:
+                    st.info("ℹ️ Профессия, образование и год рождения подтянуты из профиля. Вид обучения можно изменить для этой группы.")
+                    
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.text_input("Профессия", value=selected_user.get("profession") or "—", disabled=True)
+                        st.text_input("Образование", value=selected_user.get("education") or "—", disabled=True)
+                    with c2:
+                        st.text_input("Год рождения", value=str(selected_user.get("birth_year") or "—"), disabled=True)
+                        
+                        training_type = st.selectbox(
+                            "Вид обучения", 
+                            ["Первичное", "Периодическая проверка", "Повышение квалификации"],
+                            index=0,
+                            key="gm_add_train_type"
+                        )
+                    
+                    if st.button("✅ Добавить в группу", type="primary", key="gm_add_btn"):
+                        db.add_group_member(
+                            group_id=group["id"], 
+                            user_id=user_id, 
+                            role_in_group="student",
+                            profession=selected_user.get("profession"),
+                            education=selected_user.get("education"),
+                            birth_year=selected_user.get("birth_year"),
+                            training_type=training_type
+                        )
+                        db.log_action(USER_ID, "group_member_add",
+                                      f"Добавлен в {group['name']}: {add_label}")
+                        st.success(f"✅ Пользователь добавлен")
+                        st.rerun()
     else:
         st.info("🔒 Группа завершена. Изменение состава заблокировано.")
 
-    # --- МАССОВЫЙ ИМПОРТ ИЗ ЗАЯВКИ ---
     st.divider()
     st.subheader("📥 Импорт заявки (Excel/CSV)")
     
@@ -483,7 +479,6 @@ with tab_members:
                     st.rerun()
     else:
         st.info("🔒 Группа завершена. Импорт сотрудников заблокирован.")
-
 
 # ==================================================================
 # ВКЛАДКА 4: ОТЧЁТ ПО ГРУППЕ
@@ -558,7 +553,6 @@ with tab_report:
             df_det = build_protocol_dataframe(group["name"], topic_filter, detailed)
             st.dataframe(df_det, use_container_width=True, hide_index=True)
 
-            # --- КНОПКИ ПРОСМОТРА ОТВЕТОВ ---
             st.subheader("👁️ Просмотр ответов")
             
             res_options = {
@@ -571,7 +565,6 @@ with tab_report:
             if st.button("👁️ Открыть ответы", type="primary"):
                 show_answers_dialog(res_options[selected_res_label])
 
-            # Экспорт
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_group = "".join(c if c.isalnum() or c in "-_" else "_" for c in group["name"])
 
@@ -616,7 +609,6 @@ with tab_documents:
     sel = st.selectbox("Группа", list(group_map.keys()), key="doc_group")
     group = group_map[sel]
 
-    # --- 1. ЗАГРУЗКА PDF ---
     st.write("### 📤 Загрузить новый PDF-документ")
     with st.form("upload_doc_form", clear_on_submit=True):
         doc_type = st.selectbox(
@@ -646,7 +638,6 @@ with tab_documents:
 
     st.divider()
 
-    # --- 2. СПИСОК PDF ---
     st.write("### 📄 Загруженные PDF")
     docs = db.get_group_documents(group["id"])
     if not docs:
@@ -680,7 +671,6 @@ with tab_documents:
 
     st.divider()
 
-    # --- 3. СГЕНЕРИРОВАННЫЕ ПРОТОКОЛЫ ---
     st.write("### 📊 Сгенерированные протоколы")
     protocols = db.get_protocols_for_group(group["id"])
 

@@ -16,6 +16,8 @@ from utils.question_io import (
 
 st.set_page_config(page_title="Кабинет методиста", page_icon="👨‍🏫", layout="wide")
 restore_session()
+from utils.navigation import setup_page
+setup_page()
 require_methodist()
 
 @st.cache_resource

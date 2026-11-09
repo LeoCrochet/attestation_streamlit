@@ -1,6 +1,9 @@
+import os
 import streamlit as st
 from database import Database
-from utils.session import restore_session, clear_session
+from utils.session import restore_session
+from utils.navigation import setup_page
+from config import get_config
 
 st.set_page_config(
     page_title="Система аттестации",
@@ -9,7 +12,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 1. Восстанавливаем сессию (если обновили страницу)
 restore_session()
 
 @st.cache_resource
@@ -17,8 +19,8 @@ def get_db():
     return Database()
 
 db = get_db()
+cfg = get_config()
 
-# 2. Инициализация полей сессии по умолчанию
 for key, default in [
     ("authenticated", False),
     ("user", None),
@@ -30,63 +32,30 @@ for key, default in [
         st.session_state[key] = default
 
 
-def logout():
-    """Выход из системы"""
-    clear_session()
-    st.rerun()
+def _read_readme() -> str:
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "README.md")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "_README.md не найден._"
 
 
-# =========================================================
-# БОКОВАЯ ПАНЕЛЬ
-# =========================================================
-with st.sidebar:
-    st.title("🎓 Система аттестации")
-    st.divider()
-
-    if st.session_state.authenticated:
-        st.write(f"👤 **{st.session_state.full_name or st.session_state.user}**")
-        
-        role_label = "🔑 Администратор"
-        if st.session_state.role == "methodist":
-            role_label = "👨‍🏫 Методист"
-        elif st.session_state.role == "user":
-            role_label = "👤 Пользователь"
-        elif st.session_state.role == "manager":
-            role_label = "🧑‍💼 Менеджер"
-            
-        st.caption(role_label)
-        st.divider()
-        
-        if st.button("🚪 Выйти", use_container_width=True):
-            logout()
-            
-    else:
-        st.subheader("🔐 Вход")
-        with st.form("login_form"):
-            u = st.text_input("Логин")
-            p = st.text_input("Пароль", type="password")
-            if st.form_submit_button("Войти", use_container_width=True):
-                user = db.authenticate_user(u, p)
-                if user:
-                    st.session_state.authenticated = True
-                    st.session_state.user = user["username"]
-                    st.session_state.user_id = user["id"]
-                    st.session_state.role = user["role"]
-                    st.session_state.full_name = user["full_name"]
-                    
-                    # Сохраняем ID в URL
-                    st.query_params["user_id"] = str(user["id"])
-                    st.rerun()
-                else:
-                    st.error("❌ Неверный логин или пароль")
-
+# Сайдбар (логин + навигация) + кнопка скрытия
+setup_page()
 
 # =========================================================
-# ГЛАВНАЯ СТРАНИЦА
+# ГЛАВНАЯ СТРАНИЦА = README.md
 # =========================================================
+st.caption(f"v{cfg.APP_VERSION}")
+
 if st.session_state.authenticated:
     st.title(f"👋 Добро пожаловать, {st.session_state.full_name or st.session_state.user}!")
-    st.info("Выберите раздел в боковой панели слева 👈")
+    st.caption("Краткая справка по системе — ниже. Разделы доступны в боковой панели 👈")
 else:
     st.title("🎓 Система аттестации")
-    st.info("Войдите, чтобы начать")
+    st.info("Войдите в боковой панели, чтобы начать. Ниже — описание системы.")
+
+st.divider()
+st.markdown(_read_readme())

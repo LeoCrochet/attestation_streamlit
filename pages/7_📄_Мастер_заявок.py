@@ -10,6 +10,8 @@ from utils.import_word import parse_application_word
 
 st.set_page_config(page_title="Мастер заявок", page_icon="📄", layout="wide")
 restore_session()
+from utils.navigation import setup_page
+setup_page()
 require_methodist()
 
 @st.cache_resource

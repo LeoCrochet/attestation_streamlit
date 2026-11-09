@@ -11,6 +11,8 @@ from utils.user_io import (
 
 st.set_page_config(page_title="Администрирование", page_icon="⚙️", layout="wide")
 restore_session()
+from utils.navigation import setup_page
+setup_page()
 # --- Проверка прав ---
 if not st.session_state.get("authenticated"):
     st.warning("⚠️ Войдите в систему")
@@ -41,11 +43,15 @@ with st.expander("➕ Создать пользователя", expanded=False):
             u_username = st.text_input("Логин *", help="Латиница, цифры, _ . -")
             u_full_name = st.text_input("ФИО")
             u_email = st.text_input("Email")
+            u_profession = st.text_input("Профессия (разряд)")
+            u_education = st.text_input("Образование")
         with c2:
             u_password = st.text_input("Пароль *", type="password", help="Минимум 6 символов")
             u_role = st.selectbox("Роль", options=ROLES, format_func=role_label, index=0)
             u_dept = st.text_input("Отдел")
             u_pos = st.text_input("Должность")
+            u_birth_year = st.number_input("Год рождения", min_value=1940, max_value=2020, value=1990, step=1)
+            u_training_type = st.selectbox("Вид обучения", ["Первичное", "Периодическая проверка", "Повышение квалификации"])
 
         c_gen, _ = st.columns([1, 3])
         with c_gen:
@@ -75,13 +81,19 @@ with st.expander("➕ Создать пользователя", expanded=False):
                 for e in errors: st.error(e)
             else:
                 try:
-                    db.create_user(username=u_username.strip(), password=pwd, email=u_email.strip() or None,
-                                   full_name=u_full_name.strip() or None, role=u_role,
-                                   department=u_dept.strip() or None, position=u_pos.strip() or None)
-                    db.log_action(USER_ID, "user_create", f"Создан пользователь: {u_username}")
-                    st.success(f"✅ Пользователь «{u_username}» создан")
-                    st.session_state.pop("_gen_pwd", None)
-                    st.rerun()
+                    db.create_user(
+                        username=u_username.strip(),
+                        password=pwd,
+                        email=u_email.strip() or None,
+                        full_name=u_full_name.strip() or None,
+                        role=u_role,
+                        department=u_dept.strip() or None,
+                        position=u_pos.strip() or None,
+                        profession=u_profession.strip() or None,
+                        education=u_education.strip() or None,
+                        birth_year=u_birth_year or None,
+                        training_type=u_training_type
+                    )
                 except Exception as e:
                     st.error(f"Ошибка создания: {e}")
 

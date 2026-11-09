@@ -8,6 +8,8 @@ from utils.auth import require_methodist
 
 st.set_page_config(page_title="Дашборд", page_icon="📈", layout="wide")
 restore_session()
+from utils.navigation import setup_page
+setup_page()
 require_methodist()
 
 @st.cache_resource

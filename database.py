@@ -225,11 +225,12 @@ class Database:
         return cursor.fetchone()
 
     def get_all_users(self, include_inactive=False):
-        """Все пользователи (для админки) с их группами."""
+        """Все пользователи (для админки) с их группами и профилем."""
         cursor = self.get_cursor()
         q = """
             SELECT u.id, u.username, u.email, u.full_name, u.role, u.department, 
                    u.position, u.is_active, u.created_at, u.last_login,
+                   u.profession, u.education, u.birth_year, u.training_type,
                    GROUP_CONCAT(g.name SEPARATOR ', ') AS groups_list
             FROM users u
             LEFT JOIN group_members gm ON u.id = gm.user_id AND gm.is_active = TRUE
@@ -242,11 +243,17 @@ class Database:
         cursor.execute(q)
         return cursor.fetchall()
 
-    def create_user(self, username, password, email=None, full_name=None, role='user', department=None, position=None):
+    def create_user(self, username, password, email=None, full_name=None,
+                    role='user', department=None, position=None,
+                    profession=None, education=None, birth_year=None, training_type=None):
         password_hash = self.hash_password(password)
         self.execute_query(
-            "INSERT INTO users (username, email, password_hash, full_name, role, department, position) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (username, email, password_hash, full_name, role, department, position), commit=True
+            """INSERT INTO users 
+               (username, email, password_hash, full_name, role, department, position,
+                profession, education, birth_year, training_type) 
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (username, email, password_hash, full_name, role, department, position,
+             profession, education, birth_year, training_type), commit=True
         )
         return self.get_user_by_username(username)
 

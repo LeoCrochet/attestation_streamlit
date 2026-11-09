@@ -8,6 +8,8 @@ from utils.auth import require_login
 st.set_page_config(page_title="Результаты", page_icon="📊", layout="wide")
 
 restore_session()
+from utils.navigation import setup_page
+setup_page()
 require_login()
 
 @st.cache_resource

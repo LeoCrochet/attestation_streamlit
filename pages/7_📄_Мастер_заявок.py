@@ -2,7 +2,10 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
+from collections import Counter
+
 from utils.session import restore_session
+from utils.navigation import setup_page
 from database import Database
 from utils.auth import require_methodist
 from utils.import_application import parse_application_excel
@@ -10,7 +13,6 @@ from utils.import_word import parse_application_word
 
 st.set_page_config(page_title="Мастер заявок", page_icon="📄", layout="wide")
 restore_session()
-from utils.navigation import setup_page
 setup_page()
 require_methodist()
 
@@ -25,7 +27,6 @@ def _clean(val):
     if val is None:
         return None
     if isinstance(val, dict):
-        # Если пришел словарь, пытаемся вытащить хоть что-то осмысленное
         return str(list(val.values())[0]) if val else None
     if isinstance(val, (str, int, float, bool)):
         return val
@@ -46,11 +47,12 @@ if uploaded_file is not None:
     file_bytes = uploaded_file.read()
     fname = uploaded_file.name.lower()
     
-    # Парсим файл
+    # Парсим файл (теперь для Word возвращаются 3 значения)
     if fname.endswith(".docx"):
-        data, err = parse_application_word(file_bytes)
+        data, meta, err = parse_application_word(file_bytes)
     else:
         data, err = parse_application_excel(file_bytes)
+        meta = {"organization": None, "contact_person": None}
         
     if err:
         st.error(f"Ошибка чтения файла: {err}")
@@ -68,17 +70,34 @@ if uploaded_file is not None:
         st.divider()
         st.subheader("2. Параметры группы")
         
+        # --- АВТОМАТИЧЕСКОЕ ФОРМИРОВАНИЕ НАЗВАНИЯ ---
+        professions = [_clean(p.get("profession")) for p in data if _clean(p.get("profession"))]
+        most_common_prof = "Группа"
+        if professions:
+            most_common_prof = Counter(professions).most_common(1)[0][0]
+        
+        if len(most_common_prof) > 30:
+            most_common_prof = most_common_prof[:30] + "..."
+            
+        default_name = f"{most_common_prof} — {datetime.now().strftime('%d.%m.%Y')}"
+        
         with st.form("wizard_form"):
             c1, c2 = st.columns(2)
             with c1:
-                default_name = f"Группа {datetime.now().strftime('%d.%m.%Y_%H%M')}"
                 group_name = st.text_input("Название группы *", value=default_name)
-                org_name = st.text_input("Организация (Заказчик)")
+                org_name = st.text_input("Организация (Заказчик)", value=meta.get("organization") or "")
                 org_address = st.text_area("Адрес", height=68)
-                g_start_date = st.date_input("Дата начала обучения", value=date.today())
+                
+                # Блок дат в две колонки
+                d1, d2 = st.columns(2)
+                with d1:
+                    g_start_date = st.date_input("Дата начала обучения", value=date.today())
+                with d2:
+                    g_end_date = st.date_input("Дата окончания", value=None)
+                    
             with c2:
                 manager_name = st.text_input("Руководитель организации")
-                contact_person = st.text_input("Контактное лицо")
+                contact_person = st.text_input("Контактное лицо", value=meta.get("contact_person") or "")
                 
             st.divider()
             st.subheader("3. Параметры задания (теста)")
@@ -105,7 +124,8 @@ if uploaded_file is not None:
                             name=group_name.strip(),
                             description=f"Организация: {org_name}",
                             created_by=st.session_state.user,
-                            start_date=g_start_date
+                            start_date=g_start_date,
+                            end_date=g_end_date  # <-- ДОБАВЛЯЕМ СЮДА
                         )
                         
                         if not gid:
@@ -145,17 +165,14 @@ if uploaded_file is not None:
                             if not fio:
                                 continue
                             
-                            # Ищем пользователя по ФИО
                             all_users = db.get_all_users(include_inactive=True)
                             user = next((u for u in all_users if u["full_name"] and u["full_name"].strip().lower() == fio.lower()), None)
                             
-                            # Создаем, если нет
                             if not user:
                                 import random
                                 username = f"student_{random.randint(10000, 99999)}"
                                 default_password = "123456"
                                 
-                                # Защита от дублей username при генерации
                                 max_tries = 5
                                 while max_tries > 0:
                                     try:
@@ -176,12 +193,10 @@ if uploaded_file is not None:
                             else:
                                 user_id = user["id"]
                                 
-                            # Безопасно извлекаем строки
                             prof = _clean(person.get("profession"))
                             edu = _clean(person.get("education"))
                             train = _clean(person.get("training_type")) or "Первичное"
                             
-                            # Бронебойная обработка года рождения
                             year = None
                             raw_year = person.get("birth_year")
                             if raw_year is not None and not isinstance(raw_year, dict):
@@ -190,7 +205,6 @@ if uploaded_file is not None:
                                 if match:
                                     year = int(match.group())
                             
-                            # Добавляем в группу
                             db.add_group_member(
                                 group_id=int(gid),
                                 user_id=int(user_id),

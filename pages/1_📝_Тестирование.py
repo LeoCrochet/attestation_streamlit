@@ -1,7 +1,10 @@
 import json
 import random
 import time
+from datetime import datetime
+
 from utils.session import restore_session
+from utils.navigation import setup_page
 import streamlit as st
 
 from database import Database
@@ -10,7 +13,6 @@ from utils.auth import require_login
 st.set_page_config(page_title="Тестирование", page_icon="📝", layout="wide")
 
 restore_session()
-from utils.navigation import setup_page
 setup_page()
 require_login()
 
@@ -69,20 +71,41 @@ if not st.session_state.get("test_questions"):
         for a in user_assignments:
             attempts_left = a["max_attempts"] - (a["attempts_used"] or 0)
             is_done = (a.get("best_score") or 0) >= a["pass_score"]
-            deadline_str = (a["due_date"].strftime("%d.%m.%Y %H:%M") if a.get("due_date") else "без дедлайна")
+            
+            # --- Подсветка дедлайна ---
+            deadline_str = "без дедлайна"
+            deadline_color = "gray"
+            if a.get("due_date"):
+                now = datetime.now()
+                due = a["due_date"]
+                delta = due - now
+                deadline_str = due.strftime("%d.%m.%Y %H:%M")
+                if delta.total_seconds() < 0:
+                    deadline_color = "red"
+                    deadline_str += " (просрочено)"
+                elif delta.total_seconds() < 86400: # меньше суток
+                    deadline_color = "orange"
 
             with st.container(border=True):
-                c1, c2, c3 = st.columns([3, 1, 1])
+                c1, c2, c3 = st.columns([3, 2, 1])
                 with c1:
                     st.markdown(f"**{a['title'] or a['topic'] or 'Все темы'}**")
-                    st.caption(f"Группа: {a['group_name']} • Тема: {a['topic'] or 'Все'} • Вопросов: {a['num_questions']} • Проходной: {a['pass_score']}% • Дедлайн: {deadline_str}")
+                    st.caption(f"Группа: {a['group_name']} • Вопросов: {a['num_questions']} • Проходной: {a['pass_score']}%")
+                    st.markdown(
+                        f"Дедлайн: :{deadline_color}[{deadline_str}]", 
+                        unsafe_allow_html=True
+                    )
                 with c2:
                     if is_done:
                         st.success(f"✅ {a['best_score']:.0f}%")
                     elif attempts_left <= 0:
                         st.error("Попытки исчерпаны")
                     else:
-                        st.info(f"Попыток: {attempts_left}")
+                        st.info(f"Попыток: {attempts_left} из {a['max_attempts']}")
+                        st.progress(
+                            (a["max_attempts"] - attempts_left) / a["max_attempts"],
+                            text=f"Использовано {a['max_attempts'] - attempts_left}"
+                        )
                 with c3:
                     disabled = is_done or attempts_left <= 0
                     if st.button("▶️ Начать", key=f"start_assign_{a['id']}", type="primary", use_container_width=True, disabled=disabled):
@@ -138,6 +161,7 @@ if not st.session_state.get("test_questions"):
                 st.session_state.test_start = time.time()
                 st.session_state.test_topic = selected_topic
                 st.session_state.test_finished = False
+                st.session_state.is_free_test = True # <--- Флаг для кнопки "Пройти ещё раз"
                 st.rerun()
     else:
         # Для обычных пользователей
@@ -151,53 +175,59 @@ elif not st.session_state.get("test_finished"):
     idx = st.session_state.current_q
     q = qs[idx]
 
-    # --- БЛОК ТАЙМЕРА ---
-    if st.session_state.get("test_end_time"):
-        @st.fragment(run_every=1.0)
-        def show_timer():
-            remaining = int(st.session_state.test_end_time - time.time())
-            if remaining > 0:
-                mins, secs = divmod(remaining, 60)
-                st.warning(f"⏳ **Осталось времени:** {mins:02d}:{secs:02d}")
-            else:
-                st.error("⏰ **Время вышло!** Тест завершен автоматически.")
-                # Собираем детальные ответы перед сохранением
-                answers_detail = []
-                for i, qq in enumerate(qs):
-                    user_ans_idx = st.session_state.answers.get(i)
-                    options = json.loads(qq["options"]) if isinstance(qq["options"], str) else qq["options"]
-                    answers_detail.append({
-                        "question_id": qq["id"], "question_text": qq["question"],
-                        "options": options, "user_answer_idx": user_ans_idx,
-                        "user_answer_text": options[user_ans_idx] if user_ans_idx is not None else None,
-                        "correct_answer_idx": qq["correct_answer"], "correct_answer_text": options[qq["correct_answer"]],
-                        "is_correct": user_ans_idx == qq["correct_answer"]
-                    })
-
-                score = sum(1 for ans in answers_detail if ans["is_correct"])
-                assignment_id = st.session_state.get("assignment_id")
-                group_id = None
-                if assignment_id:
-                    assignment = db.get_assignment(assignment_id)
-                    group_id = assignment["group_id"] if assignment else None
-                elif "impersonate_group_id" in st.session_state:
-                    group_id = st.session_state["impersonate_group_id"]
+    # --- ВЫРАВНИВАНИЕ ТАЙМЕРА И ПРОГРЕСС-БАРА ---
+    c_prog, c_timer = st.columns([3, 1])
+    with c_prog:
+        st.progress(idx / len(qs), text=f"Вопрос {idx + 1} из {len(qs)}")
+    
+    with c_timer:
+        if st.session_state.get("test_end_time"):
+            @st.fragment(run_every=1.0)
+            def show_timer():
+                remaining = int(st.session_state.test_end_time - time.time())
+                if remaining > 0:
+                    mins, secs = divmod(remaining, 60)
+                    st.warning(f"⏳ **{mins:02d}:{secs:02d}**")
                 else:
-                    user_groups = db.get_user_groups(st.session_state.user_id)
-                    group_id = user_groups[0]["id"] if len(user_groups) == 1 else None
+                    st.error("⏰ **Время вышло!**")
+                    # Собираем детальные ответы перед сохранением
+                    answers_detail = []
+                    for i, qq in enumerate(qs):
+                        user_ans_idx = st.session_state.answers.get(i)
+                        options = json.loads(qq["options"]) if isinstance(qq["options"], str) else qq["options"]
+                        answers_detail.append({
+                            "question_id": qq["id"], "question_text": qq["question"],
+                            "options": options, "user_answer_idx": user_ans_idx,
+                            "user_answer_text": options[user_ans_idx] if user_ans_idx is not None else None,
+                            "correct_answer_idx": qq["correct_answer"], "correct_answer_text": options[qq["correct_answer"]],
+                            "is_correct": user_ans_idx == qq["correct_answer"]
+                        })
 
-                db.save_result(
-                    user_id=st.session_state.user_id, user_name=st.session_state.user,
-                    topic=st.session_state.get("test_topic", "Все"), answers=answers_detail,
-                    score=score, total=len(qs), time_spent=int(time.time() - st.session_state.test_start),
-                    group_id=group_id, assignment_id=assignment_id,
-                )
-                st.session_state.test_finished = True
-                st.session_state.balloons_shown = False
-                st.rerun()
-        show_timer()
+                    score = sum(1 for ans in answers_detail if ans["is_correct"])
+                    assignment_id = st.session_state.get("assignment_id")
+                    group_id = None
+                    if assignment_id:
+                        assignment = db.get_assignment(assignment_id)
+                        group_id = assignment["group_id"] if assignment else None
+                    elif "impersonate_group_id" in st.session_state:
+                        group_id = st.session_state["impersonate_group_id"]
+                    else:
+                        user_groups = db.get_user_groups(st.session_state.user_id)
+                        group_id = user_groups[0]["id"] if len(user_groups) == 1 else None
 
-    st.progress(idx / len(qs), text=f"Вопрос {idx + 1} из {len(qs)}")
+                    db.save_result(
+                        user_id=st.session_state.user_id, user_name=st.session_state.user,
+                        topic=st.session_state.get("test_topic", "Все"), answers=answers_detail,
+                        score=score, total=len(qs), time_spent=int(time.time() - st.session_state.test_start),
+                        group_id=group_id, assignment_id=assignment_id,
+                    )
+                    st.session_state.test_finished = True
+                    st.session_state.balloons_shown = False
+                    st.rerun()
+            show_timer()
+        else:
+            st.write("⏳ Без лимита")
+
     st.subheader(q["question"])
 
     options = json.loads(q["options"]) if isinstance(q["options"], str) else q["options"]
@@ -283,12 +313,20 @@ else:
     else:
         st.warning("📚 Стоит повторить материал.")
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("❌ Закрыть", type="primary", use_container_width=True):
             _reset_test_state()
             st.rerun()
-    with c2:
+    
+    # Кнопка "Пройти ещё раз" только для свободных тестов (методист/админ)
+    if st.session_state.get("is_free_test"):
+        with c2:
+            if st.button("🔄 Пройти ещё раз", use_container_width=True):
+                _reset_test_state()
+                st.rerun()
+                
+    with c3:
         if st.button("📊 Мои результаты", use_container_width=True):
             st.switch_page("pages/2_📊_Результаты.py")
 

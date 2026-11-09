@@ -46,7 +46,6 @@ if stats and stats.get("overall"):
     c2.metric("✅ Активных", o["active"] or 0)
     c3.metric("🗄️ В архиве", o["archived"] or 0)
     c4.metric("📁 Тем", o["topics"] or 0)
-    c5.metric("⭐ Ср. сложность", f"{(o['avg_difficulty'] or 0):.1f}")
 
 st.divider()
 
@@ -436,16 +435,16 @@ with tab_stats:
             use_container_width=True, hide_index=True,
         )
 
-    if stats and stats.get("by_difficulty"):
-        st.divider()
-        st.write("### ⭐ По сложности")
-        df_diff = pd.DataFrame(stats["by_difficulty"])
-        fig = px.pie(
-            df_diff, names="difficulty", values="cnt",
-            labels={"difficulty": "Сложность", "cnt": "Кол-во"},
-            hole=0.4,
-        )
-        st.plotly_chart(fig, use_container_width=True)
+    # if stats and stats.get("by_difficulty"):
+    #     st.divider()
+    #     st.write("### ⭐ По сложности")
+    #     df_diff = pd.DataFrame(stats["by_difficulty"])
+    #     fig = px.pie(
+    #         df_diff, names="difficulty", values="cnt",
+    #         labels={"difficulty": "Сложность", "cnt": "Кол-во"},
+    #         hole=0.4,
+    #     )
+    #     st.plotly_chart(fig, use_container_width=True)
 
 # ==================================================================
 # ВКЛАДКА 7: ЗАДАНИЯ

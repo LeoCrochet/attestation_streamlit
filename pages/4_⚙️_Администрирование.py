@@ -1,7 +1,9 @@
 """⚙️ Администрирование: управление пользователями."""
 import streamlit as st
 import pandas as pd
+
 from utils.session import restore_session
+from utils.navigation import setup_page
 from database import Database
 from utils.user_io import (
     ROLES, role_label,
@@ -11,8 +13,8 @@ from utils.user_io import (
 
 st.set_page_config(page_title="Администрирование", page_icon="⚙️", layout="wide")
 restore_session()
-from utils.navigation import setup_page
 setup_page()
+
 # --- Проверка прав ---
 if not st.session_state.get("authenticated"):
     st.warning("⚠️ Войдите в систему")
@@ -34,7 +36,25 @@ st.title("⚙️ Администрирование")
 st.caption("Управление пользователями системы")
 
 # ==================================================================
-# СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ
+# 1. СВОДНЫЕ МЕТРИКИ
+# ==================================================================
+all_users_raw = db.get_all_users(include_inactive=True)
+
+total_users = len(all_users_raw)
+active_users = sum(1 for u in all_users_raw if u["is_active"])
+inactive_users = total_users - active_users
+staff_users = sum(1 for u in all_users_raw if u["role"] in ("admin", "methodist"))
+
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("👥 Всего пользователей", total_users)
+c2.metric("✅ Активных", active_users)
+c3.metric("🚫 Заблокированных", inactive_users)
+c4.metric("👨‍🏫 Служебных (админ/метод.)", staff_users)
+
+st.divider()
+
+# ==================================================================
+# 2. СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ
 # ==================================================================
 with st.expander("➕ Создать пользователя", expanded=False):
     with st.form("create_user_form", clear_on_submit=False):
@@ -43,15 +63,11 @@ with st.expander("➕ Создать пользователя", expanded=False):
             u_username = st.text_input("Логин *", help="Латиница, цифры, _ . -")
             u_full_name = st.text_input("ФИО")
             u_email = st.text_input("Email")
-            u_profession = st.text_input("Профессия (разряд)")
-            u_education = st.text_input("Образование")
         with c2:
             u_password = st.text_input("Пароль *", type="password", help="Минимум 6 символов")
             u_role = st.selectbox("Роль", options=ROLES, format_func=role_label, index=0)
             u_dept = st.text_input("Отдел")
             u_pos = st.text_input("Должность")
-            u_birth_year = st.number_input("Год рождения", min_value=1940, max_value=2020, value=1990, step=1)
-            u_training_type = st.selectbox("Вид обучения", ["Первичное", "Периодическая проверка", "Повышение квалификации"])
 
         c_gen, _ = st.columns([1, 3])
         with c_gen:
@@ -81,29 +97,22 @@ with st.expander("➕ Создать пользователя", expanded=False):
                 for e in errors: st.error(e)
             else:
                 try:
-                    db.create_user(
-                        username=u_username.strip(),
-                        password=pwd,
-                        email=u_email.strip() or None,
-                        full_name=u_full_name.strip() or None,
-                        role=u_role,
-                        department=u_dept.strip() or None,
-                        position=u_pos.strip() or None,
-                        profession=u_profession.strip() or None,
-                        education=u_education.strip() or None,
-                        birth_year=u_birth_year or None,
-                        training_type=u_training_type
-                    )
+                    db.create_user(username=u_username.strip(), password=pwd, email=u_email.strip() or None,
+                                   full_name=u_full_name.strip() or None, role=u_role,
+                                   department=u_dept.strip() or None, position=u_pos.strip() or None)
+                    db.log_action(USER_ID, "user_create", f"Создан пользователь: {u_username}")
+                    st.success(f"✅ Пользователь «{u_username}» создан")
+                    st.session_state.pop("_gen_pwd", None)
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Ошибка создания: {e}")
 
 # ==================================================================
-# ФИЛЬТРЫ
+# 3. ФИЛЬТРЫ
 # ==================================================================
 st.divider()
 st.subheader("📋 Список пользователей")
 
-# Получаем список всех групп для фильтра
 all_groups = db.get_all_groups(only_active=False)
 group_names = ["Все группы"] + [g["name"] for g in all_groups]
 
@@ -118,16 +127,13 @@ with c4:
     f_search = st.text_input("Поиск (логин, ФИО, email)")
 
 # ==================================================================
-# ЗАГРУЗКА И ФИЛЬТРАЦИЯ
+# 4. ЗАГРУЗКА И ФИЛЬТРАЦИЯ
 # ==================================================================
-all_users = db.get_all_users(include_inactive=True)
-
 def _match(u):
     if f_role != "Все" and u["role"] != f_role: return False
     if f_status == "Только активные" and not u["is_active"]: return False
     if f_status == "Только отключённые" and u["is_active"]: return False
     
-    # Фильтр по группе
     if f_group != "Все группы":
         user_groups = (u.get("groups_list") or "").split(", ")
         if f_group not in user_groups:
@@ -139,16 +145,15 @@ def _match(u):
         if s not in haystack: return False
     return True
 
-users = [u for u in all_users if _match(u)]
-st.caption(f"Найдено: **{len(users)}** из {len(all_users)}")
+users = [u for u in all_users_raw if _match(u)]
+st.caption(f"Найдено: **{len(users)}** из {len(all_users_raw)}")
 
 # ==================================================================
-# ИНТЕРАКТИВНАЯ ТАБЛИЦА С ЧЕКБОКСАМИ
+# 5. ИНТЕРАКТИВНАЯ ТАБЛИЦА С ЧЕКБОКСАМИ
 # ==================================================================
 if not users:
     st.info("Нет пользователей по заданным фильтрам")
 else:
-    # Формируем DataFrame с колонкой "Выбрать"
     df_users = pd.DataFrame([
         {
             "Выбрать": False,
@@ -169,13 +174,12 @@ else:
         use_container_width=True,
         column_config={
             "Выбрать": st.column_config.CheckboxColumn("Выбрать", width="small"),
-            "ID": None, # Скрываем ID от глаз
+            "ID": None,
         },
         disabled=["Логин", "ФИО", "Группы", "Роль", "Активен", "Последний вход"],
         key="admin_users_table"
     )
 
-    # Получаем ID выбранных пользователей (исключая себя)
     selected_ids = edited_df[(edited_df["Выбрать"] == True) & (edited_df["ID"] != USER_ID)]["ID"].tolist()
 
     if selected_ids:
@@ -191,7 +195,6 @@ else:
                 st.rerun()
                 
         with mc2:
-            # Кнопка удаления с подтверждением
             confirm_key = "bulk_hard_delete_confirm"
             if st.session_state.get(confirm_key):
                 if st.button("🔥 ДА, УДАЛИТЬ НАВСЕГДА", type="primary", use_container_width=True):
@@ -207,25 +210,26 @@ else:
                     st.rerun()
 
 # ==================================================================
-# УПРАВЛЕНИЕ ОДНИМ ПОЛЬЗОВАТЕЛЕМ (Редактирование)
+# 6. УПРАВЛЕНИЕ ОДНИМ ПОЛЬЗОВАТЕЛЕМ (Редактирование)
 # ==================================================================
 if users:
     st.divider()
     st.subheader("🔧 Редактирование пользователя")
 
-    user_options = {f"#{u['id']} — {u['username']}": u for u in users}
+    user_options = {f"#{u['id']} — {u['username']} ({u['full_name'] or 'без имени'})": u for u in users}
     selected_label = st.selectbox("Выберите пользователя", list(user_options.keys()), key="admin_edit_user")
     selected = user_options[selected_label]
     is_self = selected["id"] == USER_ID
 
-    # Статистика
-    user_stats = db.get_user_statistics(selected["id"])
-    if user_stats and user_stats.get("overall"):
-        o = user_stats["overall"]
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Пройдено тестов", o.get("total_tests") or 0)
-        c2.metric("Средний балл", f"{(o.get('avg_score') or 0):.1f}%")
-        c3.metric("Лучший результат", f"{(o.get('max_score') or 0):.1f}%")
+    # Статистика (если не служебная роль)
+    if selected["role"] not in ("admin", "methodist"):
+        user_stats = db.get_user_statistics(selected["id"])
+        if user_stats and user_stats.get("overall"):
+            o = user_stats["overall"]
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Пройдено тестов", o.get("total_tests") or 0)
+            c2.metric("Средний балл", f"{(o.get('avg_score') or 0):.1f}%")
+            c3.metric("Лучший результат", f"{(o.get('max_score') or 0):.1f}%")
 
     with st.form(f"edit_user_{selected['id']}"):
         st.write(f"**Редактирование: `{selected['username']}`**")
@@ -241,7 +245,16 @@ if users:
             e_active = st.checkbox("Активен", value=bool(selected["is_active"]), disabled=is_self)
 
         st.write("**Сброс пароля** (оставьте пустым, чтобы не менять)")
-        new_pwd = st.text_input("Новый пароль", type="password", key=f"pwd_{selected['id']}")
+        
+        pwd_col1, pwd_col2 = st.columns([3, 1])
+        with pwd_col1:
+            new_pwd = st.text_input("Новый пароль", type="password", key=f"pwd_{selected['id']}")
+        with pwd_col2:
+            if st.form_submit_button("🎲 Сгенерировать"):
+                st.session_state[f"_gen_pwd_edit_{selected['id']}"] = generate_password(12)
+        
+        if st.session_state.get(f"_gen_pwd_edit_{selected['id']}"):
+            st.code(st.session_state[f"_gen_pwd_edit_{selected['id']}"], language=None)
 
         save = st.form_submit_button("💾 Сохранить", type="primary")
         if save:
@@ -249,8 +262,10 @@ if users:
             for check, val in [(validate_email, e_email), (validate_full_name, e_full_name)]:
                 ok, err = check(val)
                 if not ok: errors.append(err)
-            if new_pwd:
-                ok, err = validate_password(new_pwd)
+            
+            pwd_to_save = st.session_state.get(f"_gen_pwd_edit_{selected['id']}") or new_pwd
+            if pwd_to_save:
+                ok, err = validate_password(pwd_to_save)
                 if not ok: errors.append(err)
 
             if errors:
@@ -260,17 +275,18 @@ if users:
                           "department": e_dept.strip() or None, "position": e_pos.strip() or None,
                           "is_active": e_active}
                 if not is_self: fields["role"] = e_role
-                if new_pwd: fields["password"] = new_pwd
+                if pwd_to_save: fields["password"] = pwd_to_save
 
                 try:
                     db.update_user(selected["id"], **fields)
                     db.log_action(USER_ID, "user_update", f"Обновлён пользователь: {selected['username']}")
                     st.success("✅ Сохранено")
+                    st.session_state.pop(f"_gen_pwd_edit_{selected['id']}", None)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Ошибка: {e}")
 
-        # --- ИНДИВИДУАЛЬНОЕ УДАЛЕНИЕ ---
+    # --- ОПАСНАЯ ЗОНА ---
     if not is_self:
         st.divider()
         st.error("⚠️ **Опасная зона**")
@@ -282,7 +298,7 @@ if users:
             if selected["is_active"]:
                 confirm_deact_key = f"confirm_deactivate_{selected['id']}"
                 if st.session_state.get(confirm_deact_key):
-                    st.warning(f"Деактивировать **{selected['username']}**?")
+                    st.warning(f"Деактивировать **{selected['username']}**? Пользователь не сможет войти в систему.")
                     if st.button("Да, деактивировать", type="primary", use_container_width=True):
                         db.deactivate_user(selected["id"])
                         db.log_action(USER_ID, "user_deactivate", f"Деактивирован: {selected['username']}")
@@ -304,7 +320,7 @@ if users:
             confirm_hard_key = f"confirm_hard_delete_{selected['id']}"
             
             if st.session_state.get(confirm_hard_key):
-                st.warning(f"Вы уверены, что хотите **НАВСЕГДА** удалить **{selected['username']}**?")
+                st.warning(f"Вы уверены, что хотите **НАВСЕГДА** удалить **{selected['username']}**? Все его результаты тестов будут удалены безвозвратно.")
                 if st.button("🔥 Да, удалить навсегда", type="primary", use_container_width=True):
                     db.hard_delete_user(selected["id"])
                     db.log_action(USER_ID, "user_hard_delete", f"Удален навсегда: {selected['username']}")
@@ -320,4 +336,4 @@ if users:
                     st.rerun()
 
     if is_self:
-        st.info("ℹ️ Вы редактируете свою учётную запись. Роль, статус и удаление недоступны.")                
+        st.info("ℹ️ Вы редактируете свою учётную запись. Роль, статус и удаление недоступны.")

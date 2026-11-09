@@ -18,10 +18,10 @@ from utils.protocol_io import (
 )
 from utils.excel_protocol import generate_protocol_xlsx
 from utils.session import restore_session
+from utils.navigation import setup_page
 
 st.set_page_config(page_title="Группы", page_icon="👥", layout="wide")
 restore_session()
-from utils.navigation import setup_page
 setup_page()
 require_login()
 
@@ -136,62 +136,61 @@ with tab_list:
 
     if groups:
         st.divider()
-        st.subheader("🗑️ Удаление группы")
-        
-        group_to_del_map = {f"#{g['id']} — {g['name']}": g for g in groups}
-        selected_del_label = st.selectbox("Выберите группу для удаления", list(group_to_del_map.keys()), key="del_group_sel")
-        selected_del_group = group_to_del_map[selected_del_label]
-        
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            if selected_del_group["is_active"]:
-                if st.button("🚫 Деактивировать (в архив)", use_container_width=True):
-                    protocol_id = db.finish_group_training(selected_del_group["id"], st.session_state.user)
-                    members = db.get_group_members(selected_del_group["id"], only_active=True)
-                    detailed = db.get_group_results_detailed(selected_del_group["id"])
+        with st.expander("🗑️ Удаление и архивация группы", expanded=False):
+            group_to_del_map = {f"#{g['id']} — {g['name']}": g for g in groups}
+            selected_del_label = st.selectbox("Выберите группу", list(group_to_del_map.keys()), key="del_group_sel")
+            selected_del_group = group_to_del_map[selected_del_label]
+            
+            c1, c2 = st.columns(2)
+            
+            with c1:
+                if selected_del_group["is_active"]:
+                    if st.button("🚫 Деактивировать (в архив)", use_container_width=True):
+                        protocol_id = db.finish_group_training(selected_del_group["id"], st.session_state.user)
+                        members = db.get_group_members(selected_del_group["id"], only_active=True)
+                        detailed = db.get_group_results_detailed(selected_del_group["id"])
+                        
+                        try:
+                            os.makedirs("protocols", exist_ok=True)
+                            file_path = f"protocols/protocol_group_{selected_del_group['id']}_{protocol_id}.xlsx"
+                            
+                            protocol_bytes = generate_protocol_xlsx(
+                                group=selected_del_group, 
+                                members=members,
+                                detailed_results=detailed,
+                                date_str=datetime.now().strftime("%d.%m.%Y")
+                            )
+                            
+                            with open(file_path, "wb") as f:
+                                f.write(protocol_bytes)
+                            
+                            db.save_protocol_file_path(protocol_id, file_path)
+                            db.log_action(USER_ID, "group_archive", f"Группа в архиве с протоколом #{protocol_id}: {selected_del_group['name']}")
+                            
+                            st.success(f"✅ Группа в архиве. Протокол #{protocol_id} сохранен.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Ошибка генерации протокола: {e}")
+                else:
+                    st.info("Группа уже в архиве")
                     
-                    try:
-                        os.makedirs("protocols", exist_ok=True)
-                        file_path = f"protocols/protocol_group_{selected_del_group['id']}_{protocol_id}.xlsx"
-                        
-                        protocol_bytes = generate_protocol_xlsx(
-                            group=selected_del_group, 
-                            members=members,
-                            detailed_results=detailed,
-                            date_str=datetime.now().strftime("%d.%m.%Y")
-                        )
-                        
-                        with open(file_path, "wb") as f:
-                            f.write(protocol_bytes)
-                        
-                        db.save_protocol_file_path(protocol_id, file_path)
-                        db.log_action(USER_ID, "group_archive", f"Группа в архиве с протоколом #{protocol_id}: {selected_del_group['name']}")
-                        
-                        st.success(f"✅ Группа в архиве. Протокол #{protocol_id} сохранен на сервере.")
+            with c2:
+                confirm_key = f"confirm_del_grp_{selected_del_group['id']}"
+                if st.session_state.get(confirm_key):
+                    st.warning(f"⚠️ Удалить **«{selected_del_group['name']}»** навсегда? Все результаты и задания будут удалены!")
+                    if st.button("🔥 Да, удалить навсегда", type="primary", use_container_width=True):
+                        db.hard_delete_group(selected_del_group["id"])
+                        db.log_action(USER_ID, "group_hard_delete", f"Группа удалена: {selected_del_group['name']}")
+                        st.session_state.pop(confirm_key, None)
+                        st.success("Группа удалена из базы")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Ошибка генерации протокола: {e}")
-            else:
-                st.info("Группа уже в архиве")
-                
-        with c2:
-            confirm_key = f"confirm_del_grp_{selected_del_group['id']}"
-            if st.session_state.get(confirm_key):
-                st.warning(f"⚠️ Удалить **«{selected_del_group['name']}»** навсегда? Все результаты и задания будут удалены!")
-                if st.button("🔥 Да, удалить навсегда", type="primary", use_container_width=True):
-                    db.hard_delete_group(selected_del_group["id"])
-                    db.log_action(USER_ID, "group_hard_delete", f"Группа удалена: {selected_del_group['name']}")
-                    st.session_state.pop(confirm_key, None)
-                    st.success("Группа удалена из базы")
-                    st.rerun()
-                if st.button("Отмена", use_container_width=True):
-                    st.session_state.pop(confirm_key, None)
-                    st.rerun()
-            else:
-                if st.button("🗑️ Удалить навсегда", use_container_width=True):
-                    st.session_state[confirm_key] = True
-                    st.rerun()
+                    if st.button("Отмена", use_container_width=True):
+                        st.session_state.pop(confirm_key, None)
+                        st.rerun()
+                else:
+                    if st.button("🗑️ Удалить навсегда", use_container_width=True):
+                        st.session_state[confirm_key] = True
+                        st.rerun()
 
 # ==================================================================
 # ВКЛАДКА 2: СОЗДАНИЕ
@@ -274,37 +273,39 @@ with tab_members:
 
     members = db.get_group_members(group["id"], only_active=True)
 
+    # --- БЛОК ЗАВЕРШЕНИЯ ОБУЧЕНИЯ ---
     if group["is_active"]:
-        st.warning("⚠️ **Внимание!** Завершение обучения заблокирует пересдачи и сгенерирует итоговый протокол.")
-        
-        if st.button("🛑 Завершить обучение группы", type="primary"):
-            protocol_id = db.finish_group_training(group["id"], st.session_state.user)
-            detailed = db.get_group_results_detailed(group["id"])
-            
-            try:
-                os.makedirs("protocols", exist_ok=True)
-                file_path = f"protocols/protocol_group_{group['id']}_{protocol_id}.xlsx"
+        with st.expander("🛑 Завершение обучения", expanded=False):
+            st.warning("⚠️ **Внимание!** Завершение обучения заблокирует пересдачи и сгенерирует итоговый протокол.")
+            if st.button("Завершить обучение группы", type="primary"):
+                protocol_id = db.finish_group_training(group["id"], st.session_state.user)
+                detailed = db.get_group_results_detailed(group["id"])
                 
-                protocol_bytes = generate_protocol_xlsx(
-                    group=group, 
-                    members=members,
-                    detailed_results=detailed,
-                    date_str=datetime.now().strftime("%d.%m.%Y")
-                )
-                
-                with open(file_path, "wb") as f:
-                    f.write(protocol_bytes)
-                
-                db.save_protocol_file_path(protocol_id, file_path)
-                db.log_action(st.session_state.user_id, "group_finish", f"Обучение завершено, протокол #{protocol_id}")
-                
-                st.success(f"✅ Обучение завершено! Протокол сохранен на сервере (ID: {protocol_id}).")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Ошибка генерации протокола: {e}")
+                try:
+                    os.makedirs("protocols", exist_ok=True)
+                    file_path = f"protocols/protocol_group_{group['id']}_{protocol_id}.xlsx"
+                    
+                    protocol_bytes = generate_protocol_xlsx(
+                        group=group, 
+                        members=members,
+                        detailed_results=detailed,
+                        date_str=datetime.now().strftime("%d.%m.%Y")
+                    )
+                    
+                    with open(file_path, "wb") as f:
+                        f.write(protocol_bytes)
+                    
+                    db.save_protocol_file_path(protocol_id, file_path)
+                    db.log_action(st.session_state.user_id, "group_finish", f"Обучение завершено, протокол #{protocol_id}")
+                    
+                    st.success(f"✅ Обучение завершено! Протокол сохранен на сервере (ID: {protocol_id}).")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Ошибка генерации протокола: {e}")
     else:
         st.info("🏁 Обучение по этой группе завершено. Редактирование состава заблокировано.")
 
+    # --- ТАБЛИЦА УЧАСТНИКОВ ---
     if members:
         df_members = pd.DataFrame([
             {
@@ -321,164 +322,139 @@ with tab_members:
         ])
         st.dataframe(df_members, use_container_width=True, hide_index=True)
 
-        st.divider()
-        st.subheader("🎯 Пройти тест от имени сотрудника")
-        
-        if group["is_active"]:
-            target_member = st.selectbox(
-                "Выберите сотрудника", 
-                options=members, 
-                format_func=lambda m: f"{m['full_name'] or m['username']} ({m.get('profession') or 'без профессии'})",
-                key="surrogate_target"
-            )
-            
-            if st.button("📝 Начать тест за сотрудника", type="primary", key="btn_surrogate"):
-                st.session_state["impersonate_user_id"] = target_member["user_id"]
-                st.session_state["impersonate_user_name"] = target_member["full_name"] or target_member["username"]
-                st.session_state["impersonate_group_id"] = group["id"]
-                st.switch_page("pages/1_📝_Тестирование.py")
-        else:
-            st.info("🔒 Обучение завершено. Прохождение тестов заблокировано.")
-
-        st.divider()
-        st.subheader("🚫 Удалить из группы")
-        
-        if group["is_active"]:
-            rm_map = {
-                f"{m['full_name'] or m['username']} ({m['username']})": m["user_id"]
-                for m in members
-            }
-            rm_label = st.selectbox("Пользователь", list(rm_map.keys()), key="gm_rm")
-            if st.button("Удалить из группы", key="gm_rm_btn"):
-                db.remove_group_member(group["id"], rm_map[rm_label])
-                db.log_action(USER_ID, "group_member_remove",
-                              f"Удалён из группы {group['name']}: {rm_label}")
-                st.success("Пользователь удалён из группы")
-                st.rerun()
-        else:
-            st.info("🔒 Группа завершена. Изменение состава заблокировано.")
+        # --- УДАЛЕНИЕ ИЗ ГРУППЫ ---
+        with st.expander("🚫 Удалить участника из группы", expanded=False):
+            if group["is_active"]:
+                rm_map = {
+                    f"{m['full_name'] or m['username']} ({m['username']})": m["user_id"]
+                    for m in members
+                }
+                rm_label = st.selectbox("Пользователь", list(rm_map.keys()), key="gm_rm")
+                if st.button("Удалить из группы", key="gm_rm_btn"):
+                    db.remove_group_member(group["id"], rm_map[rm_label])
+                    db.log_action(USER_ID, "group_member_remove",
+                                  f"Удалён из группы {group['name']}: {rm_label}")
+                    st.success("Пользователь удалён из группы")
+                    st.rerun()
+            else:
+                st.info("🔒 Группа завершена. Изменение состава заблокировано.")
     else:
         st.info("В группе пока нет участников")
 
+    # --- ДОБАВЛЕНИЕ УЧАСТНИКА ---
     st.divider()
-    st.subheader("➕ Добавить одного участника вручную")
+    with st.expander("➕ Добавить одного участника вручную", expanded=False):
+        if group["is_active"]:
+            existing_ids = {m["user_id"] for m in members}
+            all_users = db.get_all_users(include_inactive=False)
+            candidates = [u for u in all_users if u["id"] not in existing_ids]
 
-    if group["is_active"]:
-        existing_ids = {m["user_id"] for m in members}
-        all_users = db.get_all_users(include_inactive=False)
-        candidates = [u for u in all_users if u["id"] not in existing_ids]
-
-        if not candidates:
-            st.info("Все пользователи уже в группе")
-        else:
-            add_map = {
-                f"{u['full_name'] or u['username']} ({u['username']})": u["id"]
-                for u in candidates
-            }
-            
-            add_label = st.selectbox("Выберите пользователя", list(add_map.keys()), key="gm_add_user")
-            
-            if add_label:
-                user_id = add_map[add_label]
-                selected_user = next((u for u in candidates if u["id"] == user_id), None)
+            if not candidates:
+                st.info("Все пользователи уже в группе")
+            else:
+                add_map = {
+                    f"{u['full_name'] or u['username']} ({u['username']})": u["id"]
+                    for u in candidates
+                }
                 
-                if selected_user:
-                    st.info("ℹ️ Профессия, образование и год рождения подтянуты из профиля. Вид обучения можно изменить для этой группы.")
-                    
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.text_input("Профессия", value=selected_user.get("profession") or "—", disabled=True)
-                        st.text_input("Образование", value=selected_user.get("education") or "—", disabled=True)
-                    with c2:
-                        st.text_input("Год рождения", value=str(selected_user.get("birth_year") or "—"), disabled=True)
-                        
-                        training_type = st.selectbox(
-                            "Вид обучения", 
-                            ["Первичное", "Периодическая проверка", "Повышение квалификации"],
-                            index=0,
-                            key="gm_add_train_type"
-                        )
-                    
-                    if st.button("✅ Добавить в группу", type="primary", key="gm_add_btn"):
+                add_label = st.selectbox("Выберите пользователя", list(add_map.keys()), key="gm_add_user")
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    profession = st.text_input("Профессия (разряд)", key="gm_prof")
+                    education = st.text_input("Образование", key="gm_edu")
+                with c2:
+                    birth_year = st.number_input("Год рождения", min_value=1940, max_value=2020, value=1990, step=1, key="gm_year")
+                    training_type = st.selectbox(
+                        "Вид обучения", 
+                        ["Первичное", "Периодическая проверка", "Повышение квалификации"], 
+                        key="gm_train"
+                    )
+
+                if st.button("✅ Добавить в группу", type="primary", key="gm_add_btn"):
+                    if not add_label:
+                        st.warning("Выберите пользователя")
+                    else:
                         db.add_group_member(
                             group_id=group["id"], 
-                            user_id=user_id, 
+                            user_id=add_map[add_label], 
                             role_in_group="student",
-                            profession=selected_user.get("profession"),
-                            education=selected_user.get("education"),
-                            birth_year=selected_user.get("birth_year"),
+                            profession=profession or None,
+                            education=education or None,
+                            birth_year=birth_year or None,
                             training_type=training_type
                         )
                         db.log_action(USER_ID, "group_member_add",
                                       f"Добавлен в {group['name']}: {add_label}")
                         st.success(f"✅ Пользователь добавлен")
                         st.rerun()
-    else:
-        st.info("🔒 Группа завершена. Изменение состава заблокировано.")
+        else:
+            st.info("🔒 Группа завершена. Изменение состава заблокировано.")
 
+    # --- МАССОВЫЙ ИМПОРТ ИЗ ЗАЯВКИ ---
     st.divider()
-    st.subheader("📥 Импорт заявки (Excel/CSV)")
-    
-    if group["is_active"]:
-        template_df = pd.DataFrame({
-            "ФИО": ["Иванов Иван Иванович"], 
-            "Профессия": ["Электромонтер 4 разряда"], 
-            "Образование": ["Среднее специальное"], 
-            "Год рождения": [1985], 
-            "Вид обучения": ["Первичное"]
-        })
-        csv_template = template_df.to_csv(index=False, sep=';', encoding='utf-8-sig')
-        
-        st.download_button(
-            label="📄 Скачать шаблон заявки (CSV)",
-            data=csv_template.encode('utf-8-sig'),
-            file_name="shablon_zayavki.csv",
-            mime="text/csv",
-            help="Заполните этот файл в Excel и загрузите обратно"
-        )
+    with st.expander("📥 Импорт заявки (Excel/CSV)", expanded=False):
+        if group["is_active"]:
+            template_df = pd.DataFrame({
+                "ФИО": ["Иванов Иван Иванович"], 
+                "Профессия": ["Электромонтер 4 разряда"], 
+                "Образование": ["Среднее специальное"], 
+                "Год рождения": [1985], 
+                "Вид обучения": ["Первичное"]
+            })
+            csv_template = template_df.to_csv(index=False, sep=';', encoding='utf-8-sig')
+            
+            st.download_button(
+                label="📄 Скачать шаблон заявки (CSV)",
+                data=csv_template.encode('utf-8-sig'),
+                file_name="shablon_zayavki.csv",
+                mime="text/csv",
+                help="Заполните этот файл в Excel и загрузите обратно"
+            )
 
-        uploaded_file = st.file_uploader("Загрузите заполненную заявку", type=["xlsx", "csv"], key="application_uploader")
-        
-        if uploaded_file is not None:
-            if st.button("🚀 Импортировать сотрудников", type="primary", key="btn_import_app"):
-                from utils.import_application import parse_application_excel
-                
-                data, err = parse_application_excel(uploaded_file.read())
-                
-                if err:
-                    st.error(err)
-                elif not data:
-                    st.warning("В файле не найдено ни одного корректного ФИО")
-                else:
-                    st.info(f"Файл прочитан. Найдено сотрудников: {len(data)}. Начинаю импорт...")
+            uploaded_file = st.file_uploader("Загрузите заполненную заявку", type=["xlsx", "csv"], key="application_uploader")
+            
+            if uploaded_file is not None:
+                if st.button("🚀 Импортировать сотрудников", type="primary", key="btn_import_app"):
+                    from utils.import_application import parse_application_excel
                     
-                    added_count = 0
-                    created_count = 0
+                    data, err = parse_application_excel(uploaded_file.read())
                     
-                    for person in data:
-                        fio = person["fio"]
-                        all_db_users = db.get_all_users(include_inactive=True)
-                        user = next((u for u in all_db_users if u["full_name"] and u["full_name"].strip().lower() == fio.strip().lower()), None)
+                    if err:
+                        st.error(err)
+                    elif not data:
+                        st.warning("В файле не найдено ни одного корректного ФИО")
+                    else:
+                        st.info(f"Файл прочитан. Найдено сотрудников: {len(data)}. Начинаю импорт...")
                         
-                        if not user:
-                            username = f"student_{random.randint(10000, 99999)}"
-                            default_password = "123456"
-                            user_id = db.create_user(username=username, password=default_password, full_name=fio, role="user")
-                            created_count += 1
-                        else:
-                            user_id = user["id"]
+                        added_count = 0
+                        created_count = 0
+                        
+                        for person in data:
+                            fio = person["fio"]
+                            all_db_users = db.get_all_users(include_inactive=True)
+                            user = next((u for u in all_db_users if u["full_name"] and u["full_name"].strip().lower() == fio.strip().lower()), None)
                             
-                        db.add_group_member(group_id=group["id"], user_id=user_id, role_in_group="student",
-                            profession=person["profession"], education=person["education"],
-                            birth_year=person["birth_year"], training_type=person["training_type"])
-                        added_count += 1
-                    
-                    db.log_action(USER_ID, "group_bulk_import", f"Импорт заявки в {group['name']}: {added_count} чел.")
-                    st.success(f"✅ Успешно добавлено: {added_count} чел. (Создано аккаунтов: {created_count})")
-                    time.sleep(1.5)
-                    st.rerun()
-    else:
-        st.info("🔒 Группа завершена. Импорт сотрудников заблокирован.")
+                            if not user:
+                                username = f"student_{random.randint(10000, 99999)}"
+                                default_password = "123456"
+                                user_id = db.create_user(username=username, password=default_password, full_name=fio, role="user")
+                                created_count += 1
+                            else:
+                                user_id = user["id"]
+                                
+                            db.add_group_member(group_id=group["id"], user_id=user_id, role_in_group="student",
+                                profession=person["profession"], education=person["education"],
+                                birth_year=person["birth_year"], training_type=person["training_type"])
+                            added_count += 1
+                        
+                        db.log_action(USER_ID, "group_bulk_import", f"Импорт заявки в {group['name']}: {added_count} чел.")
+                        st.success(f"✅ Успешно добавлено: {added_count} чел. (Создано аккаунтов: {created_count})")
+                        time.sleep(1.5)
+                        st.rerun()
+        else:
+            st.info("🔒 Группа завершена. Импорт сотрудников заблокирован.")
+
 
 # ==================================================================
 # ВКЛАДКА 4: ОТЧЁТ ПО ГРУППЕ
@@ -609,32 +585,32 @@ with tab_documents:
     sel = st.selectbox("Группа", list(group_map.keys()), key="doc_group")
     group = group_map[sel]
 
-    st.write("### 📤 Загрузить новый PDF-документ")
-    with st.form("upload_doc_form", clear_on_submit=True):
-        doc_type = st.selectbox(
-            "Тип документа", 
-            ["Заявка на обучение", "Распоряжение", "Подписанный протокол", "Другое"]
-        )
-        uploaded_pdf = st.file_uploader("Выберите PDF файл", type=["pdf"])
-        
-        if st.form_submit_button("💾 Сохранить документ", type="primary"):
-            if uploaded_pdf is not None:
-                group_dir = f"uploads/group_{group['id']}"
-                os.makedirs(group_dir, exist_ok=True)
-                
-                safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in uploaded_pdf.name)
-                file_path = f"{group_dir}/{doc_type}_{safe_name}"
-                
-                with open(file_path, "wb") as f:
-                    f.write(uploaded_pdf.getbuffer())
-                
-                db.add_group_document(group["id"], doc_type, uploaded_pdf.name, file_path, USER)
-                db.log_action(USER_ID, "doc_upload", f"Загружен документ '{doc_type}' для группы {group['name']}")
-                
-                st.success("✅ Документ загружен!")
-                st.rerun()
-            else:
-                st.warning("Выберите файл")
+    with st.expander("📤 Загрузить новый PDF-документ", expanded=False):
+        with st.form("upload_doc_form", clear_on_submit=True):
+            doc_type = st.selectbox(
+                "Тип документа", 
+                ["Заявка на обучение", "Распоряжение", "Подписанный протокол", "Другое"]
+            )
+            uploaded_pdf = st.file_uploader("Выберите PDF файл", type=["pdf"])
+            
+            if st.form_submit_button("💾 Сохранить документ", type="primary"):
+                if uploaded_pdf is not None:
+                    group_dir = f"uploads/group_{group['id']}"
+                    os.makedirs(group_dir, exist_ok=True)
+                    
+                    safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in uploaded_pdf.name)
+                    file_path = f"{group_dir}/{doc_type}_{safe_name}"
+                    
+                    with open(file_path, "wb") as f:
+                        f.write(uploaded_pdf.getbuffer())
+                    
+                    db.add_group_document(group["id"], doc_type, uploaded_pdf.name, file_path, USER)
+                    db.log_action(USER_ID, "doc_upload", f"Загружен документ '{doc_type}' для группы {group['name']}")
+                    
+                    st.success("✅ Документ загружен!")
+                    st.rerun()
+                else:
+                    st.warning("Выберите файл")
 
     st.divider()
 

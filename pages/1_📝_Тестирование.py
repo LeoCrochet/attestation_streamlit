@@ -106,31 +106,41 @@ if not st.session_state.get("test_questions"):
                             st.rerun()
         st.divider()
 
-# ========== ЭКРАН 1: ВЫБОР И СТАРТ ==========
+# ========== ЭКРАН 1: ВЫБОР И СТАРТ (Только для админа/методиста) ==========
 if not st.session_state.get("test_questions"):
-    topics = ["Все темы"] + db.get_all_topics()
+    # Показываем свободный тест только админу или методисту (для проверки)
+    if st.session_state.get("role") in ("admin", "methodist"):
+        st.info("💡 Режим проверки: вы можете пройти свободный тест, чтобы проверить работу системы. Обычным пользователям доступны только назначенные задания.")
+        
+        topics = ["Все темы"] + db.get_all_topics()
 
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        selected_topic = st.selectbox("Тема", topics, key="sel_topic")
-    with c2:
-        num_questions = st.number_input("Кол-во вопросов", min_value=1, max_value=50, value=10, key="sel_num")
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            selected_topic = st.selectbox("Тема", topics, key="sel_topic")
+        with c2:
+            num_questions = st.number_input(
+                "Кол-во вопросов", min_value=1, max_value=50, value=10, key="sel_num",
+            )
 
-    if st.button("🚀 Начать тест (Свободный)", type="primary", use_container_width=True):
-        topic_filter = None if selected_topic == "Все темы" else selected_topic
-        questions = db.get_questions_by_topic(topic_filter)
-        if not questions:
-            st.warning("Нет вопросов по выбранной теме")
-        else:
-            random.shuffle(questions)
-            _reset_test_state()
-            st.session_state.test_questions = questions[:num_questions]
-            st.session_state.current_q = 0
-            st.session_state.answers = {}
-            st.session_state.test_start = time.time()
-            st.session_state.test_topic = selected_topic
-            st.session_state.test_finished = False
-            st.rerun()
+        if st.button("🚀 Начать тест (Свободный)", type="primary", use_container_width=True):
+            topic_filter = None if selected_topic == "Все темы" else selected_topic
+            questions = db.get_questions_by_topic(topic_filter)
+            if not questions:
+                st.warning("Нет вопросов по выбранной теме")
+            else:
+                random.shuffle(questions)
+                _reset_test_state()
+                st.session_state.test_questions = questions[:num_questions]
+                st.session_state.current_q = 0
+                st.session_state.answers = {}
+                st.session_state.test_start = time.time()
+                st.session_state.test_topic = selected_topic
+                st.session_state.test_finished = False
+                st.rerun()
+    else:
+        # Для обычных пользователей
+        if not st.session_state.get("test_questions"):
+            st.info("👋 У вас нет активных заданий. Пожалуйста, ожидайте назначения теста от методиста.")
 
 
 # ========== ЭКРАН 2: ПРОХОЖДЕНИЕ ТЕСТА ==========

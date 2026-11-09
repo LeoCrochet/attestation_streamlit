@@ -7,7 +7,6 @@ from database import Database
 from utils.auth import require_methodist
 from utils.import_application import parse_application_excel
 from utils.import_word import parse_application_word
-from datetime import date
 
 st.set_page_config(page_title="Мастер заявок", page_icon="📄", layout="wide")
 restore_session()
@@ -19,13 +18,15 @@ def get_db():
 
 db = get_db()
 
-# --- Функция для "очистки" данных от словарей и numpy ---
+# --- Универсальная функция очистки ---
 def _clean(val):
     if val is None:
         return None
+    if isinstance(val, dict):
+        # Если пришел словарь, пытаемся вытащить хоть что-то осмысленное
+        return str(list(val.values())[0]) if val else None
     if isinstance(val, (str, int, float, bool)):
         return val
-    # Если это словарь или что-то еще сложное — превращаем в строку
     return str(val)
 
 st.title("📄 Мастер заявок")
@@ -102,7 +103,7 @@ if uploaded_file is not None:
                             name=group_name.strip(),
                             description=f"Организация: {org_name}",
                             created_by=st.session_state.user,
-                            start_date=g_start_date # <--- ПЕРЕДАЕМ ДАТУ
+                            start_date=g_start_date
                         )
                         
                         if not gid:
@@ -138,7 +139,7 @@ if uploaded_file is not None:
                         created_count = 0
                         
                         for person in data:
-                            fio = _clean(person["fio"])
+                            fio = _clean(person.get("fio"))
                             if not fio:
                                 continue
                             
@@ -152,26 +153,36 @@ if uploaded_file is not None:
                                 username = f"student_{random.randint(10000, 99999)}"
                                 default_password = "123456"
                                 
-                                user_id = db.create_user(
-                                    username=username,
-                                    password=default_password,
-                                    full_name=fio,
-                                    role="user"
-                                )
+                                # Защита от дублей username при генерации
+                                max_tries = 5
+                                while max_tries > 0:
+                                    try:
+                                        user_id = db.create_user(
+                                            username=username,
+                                            password=default_password,
+                                            full_name=fio,
+                                            role="user"
+                                        )
+                                        if isinstance(user_id, dict):
+                                            user_id = user_id.get("id")
+                                        break
+                                    except Exception:
+                                        username = f"student_{random.randint(10000, 99999)}"
+                                        max_tries -= 1
+                                
                                 created_count += 1
                             else:
                                 user_id = user["id"]
                                 
-                             # Безопасно извлекаем строки
+                            # Безопасно извлекаем строки
                             prof = _clean(person.get("profession"))
                             edu = _clean(person.get("education"))
                             train = _clean(person.get("training_type")) or "Первичное"
                             
-                            # Безопасная обработка года рождения
+                            # Бронебойная обработка года рождения
                             year = None
                             raw_year = person.get("birth_year")
-                            if raw_year is not None:
-                                # Пытаемся найти 4 цифры (например, 1985) в любом тексте
+                            if raw_year is not None and not isinstance(raw_year, dict):
                                 import re
                                 match = re.search(r'\d{4}', str(raw_year))
                                 if match:

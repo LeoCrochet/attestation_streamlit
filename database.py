@@ -484,6 +484,17 @@ class Database:
         cursor.execute("SELECT topic, COUNT(*) as tests_count, AVG(score * 100.0 / total_questions) as avg_score FROM results WHERE user_id = %s GROUP BY topic ORDER BY avg_score DESC", (user_id,))
         by_topic = cursor.fetchall()
         return {'overall': overall, 'by_topic': by_topic}
+    
+    def get_result_details(self, result_id):
+        """Получить детальный результат теста (с вопросами и ответами)."""
+        cursor = self.get_cursor()
+        cursor.execute("""
+            SELECT r.*, u.full_name, u.username
+            FROM results r
+            JOIN users u ON u.id = r.user_id
+            WHERE r.id = %s
+        """, (result_id,))
+        return cursor.fetchone()
 
     # ==================================================================
     # ЗАДАНИЯ
@@ -761,3 +772,4 @@ class Database:
             self.connection.rollback()
             logger.error(f"❌ Error deleting protocol: {e}")
             return False
+        

@@ -3,11 +3,13 @@ from datetime import datetime, date
 import time
 import random
 import os
+import json
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from utils.word_export import generate_answers_word
 from database import Database
 from utils.auth import require_login
 from utils.protocol_io import (
@@ -34,6 +36,69 @@ def get_db():
 db = get_db()
 USER = st.session_state.user
 USER_ID = st.session_state.user_id
+
+# Функция для всплывающего окна с ответами
+@st.dialog("Детали ответов", width="large")
+def show_answers_dialog(result_id):
+    res = db.get_result_details(result_id)
+    if not res:
+        st.error("Результат не найден")
+        return
+
+    st.write(f"**Студент:** {res['full_name'] or res['username']}")
+    st.write(f"**Тема:** {res['topic']} | **Балл:** {res['score']} из {res['total_questions']}")
+    st.divider()
+
+    answers = json.loads(res['answers']) if isinstance(res['answers'], str) else res['answers']
+    
+    # Защита от старого формата
+    if isinstance(answers, dict):
+        st.warning("⚠️ Это старый формат ответов. Пройдите тест заново, чтобы увидеть детали.")
+        return
+        
+    for i, ans in enumerate(answers, start=1):
+        # Текст вопроса
+        st.markdown(f"### Вопрос {i}: {ans.get('question_text', '—')}")
+        
+        opts = ans.get("options", [])
+        user_idx = ans.get("user_answer_idx")
+        correct_idx = ans.get("correct_answer_idx")
+        
+        for opt_i, opt_text in enumerate(opts):
+            # Определяем, как подсветить вариант
+            is_user_choice = (opt_i == user_idx)
+            is_correct = (opt_i == correct_idx)
+            
+            if is_correct and is_user_choice:
+                st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, верно)*")
+            elif is_correct:
+                st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Правильный ответ)*")
+            elif is_user_choice:
+                st.error(f"❌ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, неверно)*")
+            else:
+                st.write(f"▫️ {chr(65 + opt_i)}. {opt_text}")
+        
+        st.divider()
+
+    # Кнопка экспорта в Word (вынесена за пределы цикла)
+    try:
+        word_bytes = generate_answers_word(
+            user_name=res['full_name'] or res['username'],
+            topic=res['topic'],
+            score=res['score'],
+            total=res['total_questions'],
+            answers_data=answers
+        )
+        st.download_button(
+            label="📥 Скачать разбор в Word",
+            data=word_bytes,
+            file_name=f"answers_{res['username']}_{res['id']}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            type="primary",
+            use_container_width=True
+        )
+    except Exception as e:
+        st.error(f"Ошибка генерации Word: {e}")
 
 st.title("👥 Группы обучения")
 
@@ -86,10 +151,7 @@ with tab_list:
         with c1:
             if selected_del_group["is_active"]:
                 if st.button("🚫 Деактивировать (в архив)", use_container_width=True):
-                    # 1. Закрываем обучение и создаем запись протокола
                     protocol_id = db.finish_group_training(selected_del_group["id"], st.session_state.user)
-                    
-                    # 2. Генерируем Excel-файл
                     members = db.get_group_members(selected_del_group["id"], only_active=True)
                     detailed = db.get_group_results_detailed(selected_del_group["id"])
                     
@@ -223,7 +285,6 @@ with tab_members:
         
         if st.button("🛑 Завершить обучение группы", type="primary"):
             protocol_id = db.finish_group_training(group["id"], st.session_state.user)
-            
             detailed = db.get_group_results_detailed(group["id"])
             
             try:
@@ -401,33 +462,20 @@ with tab_members:
                     
                     for person in data:
                         fio = person["fio"]
-                        
                         all_db_users = db.get_all_users(include_inactive=True)
                         user = next((u for u in all_db_users if u["full_name"] and u["full_name"].strip().lower() == fio.strip().lower()), None)
                         
                         if not user:
                             username = f"student_{random.randint(10000, 99999)}"
                             default_password = "123456"
-                            
-                            user_id = db.create_user(
-                                username=username,
-                                password=default_password,
-                                full_name=fio,
-                                role="user"
-                            )
+                            user_id = db.create_user(username=username, password=default_password, full_name=fio, role="user")
                             created_count += 1
                         else:
                             user_id = user["id"]
                             
-                        db.add_group_member(
-                            group_id=group["id"],
-                            user_id=user_id,
-                            role_in_group="student",
-                            profession=person["profession"],
-                            education=person["education"],
-                            birth_year=person["birth_year"],
-                            training_type=person["training_type"]
-                        )
+                        db.add_group_member(group_id=group["id"], user_id=user_id, role_in_group="student",
+                            profession=person["profession"], education=person["education"],
+                            birth_year=person["birth_year"], training_type=person["training_type"])
                         added_count += 1
                     
                     db.log_action(USER_ID, "group_bulk_import", f"Импорт заявки в {group['name']}: {added_count} чел.")
@@ -453,7 +501,6 @@ with tab_report:
     sel_label = st.selectbox("Группа", list(group_map.keys()), key="rep_group")
     group = group_map[sel_label]
 
-    # Получаем участников для отчета (нужно для протокола)
     members = db.get_group_members(group["id"], only_active=True)
 
     topics = ["Все темы"] + db.get_all_topics(include_archived=True)
@@ -488,10 +535,8 @@ with tab_report:
         if not df_stats.empty:
             fig = px.bar(
                 df_stats, x="ФИО", y="Средний балл %",
-                text="Средний балл %",
-                color="Средний балл %",
-                color_continuous_scale="RdYlGn",
-                range_color=[0, 100],
+                text="Средний балл %", color="Средний балл %",
+                color_continuous_scale="RdYlGn", range_color=[0, 100],
             )
             fig.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
             fig.update_layout(height=400, showlegend=False)
@@ -514,9 +559,22 @@ with tab_report:
             df_det = build_protocol_dataframe(group["name"], topic_filter, detailed)
             st.dataframe(df_det, use_container_width=True, hide_index=True)
 
+            # --- КНОПКИ ПРОСМОТРА ОТВЕТОВ ---
+            st.subheader("👁️ Просмотр ответов")
+            
+            res_options = {
+                f"{r['full_name'] or r['username']} — {r['topic']} ({r['date'].strftime('%d.%m %H:%M')})": r['id']
+                for r in detailed
+            }
+            
+            selected_res_label = st.selectbox("Выберите результат для просмотра", list(res_options.keys()))
+            
+            if st.button("👁️ Открыть ответы", type="primary"):
+                show_answers_dialog(res_options[selected_res_label])
+
+            # Экспорт
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe_group = "".join(c if c.isalnum() or c in "-_" else "_"
-                                 for c in group["name"])
+            safe_group = "".join(c if c.isalnum() or c in "-_" else "_" for c in group["name"])
 
             c1, c2 = st.columns(2)
             with c1:
@@ -530,7 +588,7 @@ with tab_report:
             with c2:
                 protocol_bytes = generate_protocol_xlsx(
                     group=group, 
-                    members=members, # Теперь members доступны
+                    members=members,
                     detailed_results=detailed,
                     date_str=datetime.now().strftime("%d.%m.%Y")
                 )
@@ -575,7 +633,6 @@ with tab_protocols:
         ])
         st.dataframe(df_p, use_container_width=True, hide_index=True)
         
-        # --- СКАЧИВАНИЕ И УДАЛЕНИЕ СОХРАНЕННЫХ ПРОТОКОЛОВ ---
         st.subheader("📥 Управление протоколами")
         for p in protocols:
             c1, c2 = st.columns([3, 1])

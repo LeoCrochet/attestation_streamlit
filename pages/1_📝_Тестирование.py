@@ -330,27 +330,29 @@ else:
         if st.button("📊 Мои результаты", use_container_width=True):
             st.switch_page("pages/2_📊_Результаты.py")
 
-    with st.expander("📋 Детальный просмотр ответов"):
-        for i, q in enumerate(qs):
-            options = json.loads(q["options"])
-            user_idx = ans.get(i)
-            correct_idx = q["correct_answer"]
-            
-            # Заголовок вопроса
-            st.markdown(f"**Вопрос {i + 1}: {q['question']}**")
-            
-            # Вывод всех вариантов
-            for opt_i, opt_text in enumerate(options):
-                is_user_choice = (opt_i == user_idx)
-                is_correct = (opt_i == correct_idx)
+     # Детальный просмотр ответов доступен только админам и методистам
+    if st.session_state.get("role") in ("admin", "methodist"):
+        with st.expander("📋 Детальный просмотр ответов (режим проверки)"):
+            for i, q in enumerate(qs):
+                options = json.loads(q["options"])
+                user_idx = ans.get(i)
+                correct_idx = q["correct_answer"]
                 
-                if is_correct and is_user_choice:
-                    st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, верно)*")
-                elif is_correct:
-                    st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Правильный ответ)*")
-                elif is_user_choice:
-                    st.error(f"❌ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, неверно)*")
-                else:
-                    st.write(f"▫️ {chr(65 + opt_i)}. {opt_text}")
-            
-            st.divider()
+                # Заголовок вопроса
+                st.markdown(f"**Вопрос {i + 1}: {q['question']}**")
+                
+                # Вывод всех вариантов
+                for opt_i, opt_text in enumerate(options):
+                    is_user_choice = (opt_i == user_idx)
+                    is_correct = (opt_i == correct_idx)
+                    
+                    if is_correct and is_user_choice:
+                        st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, верно)*")
+                    elif is_correct:
+                        st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Правильный ответ)*")
+                    elif is_user_choice:
+                        st.error(f"❌ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, неверно)*")
+                    else:
+                        st.write(f"▫️ {chr(65 + opt_i)}. {opt_text}")
+                
+                st.divider()

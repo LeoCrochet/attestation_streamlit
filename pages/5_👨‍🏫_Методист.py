@@ -414,9 +414,14 @@ with tab_export:
 # ==================================================================
 # ВКЛАДКА 6: СТАТИСТИКА БАНКА
 # ==================================================================
+# ==================================================================
+# ВКЛАДКА 6: СТАТИСТИКА БАНКА
+# ==================================================================
 with tab_stats:
+    st.subheader("📊 Общая статистика")
+    
+    # График по темам (как было)
     if stats and stats.get("by_topic"):
-        st.write("### 📚 По темам")
         df_topics = pd.DataFrame(stats["by_topic"])
         fig = px.bar(
             df_topics, x="topic", y="cnt", text="cnt",
@@ -424,16 +429,72 @@ with tab_stats:
             color="cnt", color_continuous_scale="Blues",
         )
         fig.update_traces(textposition="outside")
-        fig.update_layout(height=400, showlegend=False)
+        fig.update_layout(height=300, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
 
-        st.dataframe(
-            df_topics.rename(columns={
-                "topic": "Тема", "cnt": "Вопросов",
-                "avg_diff": "Ср. сложность", "archived": "В архиве",
-            }),
-            use_container_width=True, hide_index=True,
-        )
+    st.divider()
+    st.subheader("📉 Анализ сложности вопросов (по ответам пользователей)")
+    st.caption("Помогает выявить вопросы, на которые чаще всего отвечают неправильно.")
+
+    # Получаем статистику по вопросам
+    q_stats = db.get_question_difficulty_stats()
+
+    if not q_stats:
+        st.info("Пока нет данных с ответами пользователей. Пройдите несколько тестов.")
+    else:
+        # Фильтры для таблицы
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            stat_topics = ["Все темы"] + sorted(list(set(q["topic"] for q in q_stats)))
+            stat_topic_filter = st.selectbox("Тема", stat_topics, key="stat_topic_filter")
+        with c2:
+            search_stat = st.text_input("Поиск по тексту вопроса", key="stat_search")
+
+        filtered_stats = q_stats
+        if stat_topic_filter != "Все темы":
+            filtered_stats = [q for q in filtered_stats if q["topic"] == stat_topic_filter]
+        if search_stat:
+            filtered_stats = [q for q in filtered_stats if search_stat.lower() in q["question"].lower()]
+
+        if not filtered_stats:
+            st.warning("Нет вопросов по заданным фильтрам.")
+        else:
+            # Формируем DataFrame
+            df_q_stats = pd.DataFrame([
+                {
+                    "ID": q["id"],
+                    "Тема": q["topic"],
+                    "Вопрос": q["question"][:60] + ("…" if len(q["question"]) > 60 else ""),
+                    "Всего ответов": q["total_attempts"],
+                    "Верных": q["correct_attempts"],
+                    "Успешность": q["percentage"],
+                }
+                for q in filtered_stats
+            ])
+
+            # Используем прогресс-бар для колонки "Успешность"
+            st.dataframe(
+                df_q_stats,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "ID": st.column_config.NumberColumn("ID", width="small"),
+                    "Успешность": st.column_config.ProgressColumn(
+                        "Успешность", min_value=0, max_value=100, format="%.1f%%"
+                    )
+                }
+            )
+
+            # Экспорт в CSV
+            ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+            st.download_button(
+                "📥 Скачать анализ в CSV",
+                data=df_q_stats.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"question_stats_{ts}.csv",
+                mime="text/csv",
+            )
+
+            st.info("💡 **Совет:** Вопросы с успешностью ниже 50% стоит пересмотреть — возможно, они сформулированы неоднозначно или материал по этой теме требует дополнительного разъяснения.")
 
     # if stats and stats.get("by_difficulty"):
     #     st.divider()
@@ -450,6 +511,13 @@ with tab_stats:
 # ВКЛАДКА 7: ЗАДАНИЯ
 # ==================================================================
 with tab_assign:
+    # Словарь для перевода статусов
+    STATUS_LABELS = {
+        "open": "🟢 Открыто",
+        "closed": "🔒 Закрыто",
+        "archived": "🗄️ В архиве",
+    }
+
     with st.expander("➕ Создать задание", expanded=False):
         groups = db.get_all_groups(only_active=True)
         if not groups:
@@ -500,19 +568,33 @@ with tab_assign:
 
     st.divider()
     
-    f_status = st.selectbox("Фильтр по статусу", ["Все", "open", "closed", "archived"], key="a_filter")
-    assignments = db.get_all_assignments(status=None if f_status == "Все" else f_status)
+    # Фильтр по статусу теперь тоже на русском
+    status_filter_map = {
+        "Все": None,
+        "🟢 Открытые": "open",
+        "🔒 Закрытые": "closed",
+        "🗄️ В архиве": "archived",
+    }
+    f_status_label = st.selectbox("Фильтр по статусу", list(status_filter_map.keys()), key="a_filter")
+    f_status = status_filter_map[f_status_label]
+
+    assignments = db.get_all_assignments(status=f_status)
 
     if not assignments:
         st.info("Заданий пока нет")
     else:
         df_a = pd.DataFrame([
             {
-                "ID": a["id"], "Название": a["title"] or "—", "Группа": a["group_name"],
-                "Тема": a["topic"] or "Все", "Вопросов": a["num_questions"],
-                "Попыток": a["max_attempts"], "Проходной": f"{a['pass_score']}%",
+                "ID": a["id"], 
+                "Название": a["title"] or "—", 
+                "Группа": a["group_name"],
+                "Тема": a["topic"] or "Все", 
+                "Вопросов": a["num_questions"],
+                "Попыток": a["max_attempts"], 
+                "Проходной": f"{a['pass_score']}%",
                 "Дедлайн": a["due_date"].strftime("%d.%m.%Y %H:%M") if a.get("due_date") else "—",
-                "Сдали": f"{a['completed_count']} / {a['total_students']}", "Статус": a["status"],
+                "Сдали": f"{a['completed_count']} / {a['total_students']}", 
+                "Статус": STATUS_LABELS.get(a["status"], a["status"]), # Переводим статус
             }
             for a in assignments
         ])
@@ -548,8 +630,10 @@ with tab_assign:
 
                 df_students = pd.DataFrame([
                     {
-                        "ФИО": s["full_name"] or s["username"], "Логин": s["username"],
-                        "Попыток": s["attempts"] or 0, "Лучший %": round(s["best_score"] or 0, 1),
+                        "ФИО": s["full_name"] or s["username"], 
+                        "Логин": s["username"],
+                        "Попыток": s["attempts"] or 0, 
+                        "Лучший %": round(s["best_score"] or 0, 1),
                         "Последняя попытка": s["last_attempt"].strftime("%d.%m.%Y %H:%M") if s.get("last_attempt") else "—",
                         "Статус": "✅ Сдал" if (s.get("best_score") or 0) >= assignment["pass_score"] else "⏳ В процессе",
                     }

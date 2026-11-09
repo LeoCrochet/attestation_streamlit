@@ -371,6 +371,64 @@ class Database:
         by_difficulty = cursor.fetchall()
         return {"overall": overall, "by_topic": by_topic, "by_difficulty": by_difficulty}
 
+    def get_question_difficulty_stats(self):
+        """
+        Анализ ответов на вопросы по всем результатам.
+        Возвращает список словарей с ID вопроса, текстом, темой, 
+        общим количеством ответов, количеством правильных и процентом успешных ответов.
+        """
+        cursor = self.get_cursor()
+        # Загружаем все результаты, где есть ответы
+        cursor.execute("SELECT answers FROM results WHERE answers IS NOT NULL")
+        results = cursor.fetchall()
+
+        # Загружаем все вопросы
+        cursor.execute("SELECT id, question, topic, options FROM questions")
+        questions_map = {q["id"]: q for q in cursor.fetchall()}
+
+        stats = {}
+
+        for r in results:
+            try:
+                answers = json.loads(r["answers"]) if isinstance(r["answers"], str) else r["answers"]
+                if not isinstance(answers, list):
+                    continue
+
+                for ans in answers:
+                    qid = ans.get("question_id")
+                    if not qid or qid not in questions_map:
+                        continue
+
+                    if qid not in stats:
+                        stats[qid] = {
+                            "id": qid,
+                            "question": questions_map[qid]["question"],
+                            "topic": questions_map[qid]["topic"],
+                            "total_attempts": 0,
+                            "correct_attempts": 0,
+                        }
+
+                    stats[qid]["total_attempts"] += 1
+                    if ans.get("is_correct"):
+                        stats[qid]["correct_attempts"] += 1
+            except Exception:
+                continue
+
+        # Формируем итоговый список с процентами
+        result_list = []
+        for qid, data in stats.items():
+            total = data["total_attempts"]
+            correct = data["correct_attempts"]
+            pct = round((correct / total * 100), 1) if total > 0 else 0
+            result_list.append({
+                **data,
+                "percentage": pct
+            })
+
+        # Сортируем по проценту (сначала самые проблемные)
+        result_list.sort(key=lambda x: x["percentage"])
+        return result_list
+    
     def get_questions_history(self, question_id=None, limit=100):
         cursor = self.get_cursor()
         if question_id:

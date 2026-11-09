@@ -4,6 +4,7 @@ import time
 import random
 import os
 import json
+import shutil
 
 import pandas as pd
 import plotly.express as px
@@ -57,7 +58,6 @@ def show_answers_dialog(result_id):
         return
         
     for i, ans in enumerate(answers, start=1):
-        # Текст вопроса
         st.markdown(f"### Вопрос {i}: {ans.get('question_text', '—')}")
         
         opts = ans.get("options", [])
@@ -65,7 +65,6 @@ def show_answers_dialog(result_id):
         correct_idx = ans.get("correct_answer_idx")
         
         for opt_i, opt_text in enumerate(opts):
-            # Определяем, как подсветить вариант
             is_user_choice = (opt_i == user_idx)
             is_correct = (opt_i == correct_idx)
             
@@ -80,7 +79,7 @@ def show_answers_dialog(result_id):
         
         st.divider()
 
-    # Кнопка экспорта в Word (вынесена за пределы цикла)
+    # Кнопка экспорта в Word
     try:
         word_bytes = generate_answers_word(
             user_name=res['full_name'] or res['username'],
@@ -102,12 +101,12 @@ def show_answers_dialog(result_id):
 
 st.title("👥 Группы обучения")
 
-tab_list, tab_create, tab_members, tab_report, tab_protocols = st.tabs([
+tab_list, tab_create, tab_members, tab_report, tab_documents = st.tabs([
     "📋 Список групп",
     "➕ Создать группу",
     "👤 Состав группы",
     "📊 Отчёт по группе",
-    "📄 Протоколы",
+    "📎 Документы",
 ])
 
 # ==================================================================
@@ -603,10 +602,10 @@ with tab_report:
                 )
 
 # ==================================================================
-# ВКЛАДКА 5: ПРОТОКОЛЫ
+# ВКЛАДКА 5: ДОКУМЕНТЫ (ПРОТОКОЛЫ + PDF)
 # ==================================================================
-with tab_protocols:
-    st.subheader("📄 Протоколы тестирования")
+with tab_documents:
+    st.subheader("📎 Документы группы")
 
     groups = db.get_all_groups(only_active=False)
     if not groups:
@@ -614,58 +613,95 @@ with tab_protocols:
         st.stop()
 
     group_map = {f"#{g['id']} — {g['name']}": g for g in groups}
-    sel = st.selectbox("Группа", list(group_map.keys()), key="prot_group")
+    sel = st.selectbox("Группа", list(group_map.keys()), key="doc_group")
     group = group_map[sel]
 
+    # --- 1. ЗАГРУЗКА PDF ---
+    st.write("### 📤 Загрузить новый PDF-документ")
+    with st.form("upload_doc_form", clear_on_submit=True):
+        doc_type = st.selectbox(
+            "Тип документа", 
+            ["Заявка на обучение", "Распоряжение", "Подписанный протокол", "Другое"]
+        )
+        uploaded_pdf = st.file_uploader("Выберите PDF файл", type=["pdf"])
+        
+        if st.form_submit_button("💾 Сохранить документ", type="primary"):
+            if uploaded_pdf is not None:
+                group_dir = f"uploads/group_{group['id']}"
+                os.makedirs(group_dir, exist_ok=True)
+                
+                safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in uploaded_pdf.name)
+                file_path = f"{group_dir}/{doc_type}_{safe_name}"
+                
+                with open(file_path, "wb") as f:
+                    f.write(uploaded_pdf.getbuffer())
+                
+                db.add_group_document(group["id"], doc_type, uploaded_pdf.name, file_path, USER)
+                db.log_action(USER_ID, "doc_upload", f"Загружен документ '{doc_type}' для группы {group['name']}")
+                
+                st.success("✅ Документ загружен!")
+                st.rerun()
+            else:
+                st.warning("Выберите файл")
+
+    st.divider()
+
+    # --- 2. СПИСОК PDF ---
+    st.write("### 📄 Загруженные PDF")
+    docs = db.get_group_documents(group["id"])
+    if not docs:
+        st.info("К этой группе пока не прикреплено ни одного PDF-документа.")
+    else:
+        for d in docs:
+            c1, c2, c3 = st.columns([3, 1, 1])
+            with c1:
+                st.write(f"**{d['doc_type']}**")
+                st.caption(f"Файл: {d['file_name']} | Загружен: {d['uploaded_at'].strftime('%d.%m.%Y %H:%M')}")
+            with c2:
+                if os.path.exists(d['file_path']):
+                    with open(d['file_path'], "rb") as f:
+                        st.download_button(
+                            "📥 Скачать",
+                            data=f.read(),
+                            file_name=d['file_name'],
+                            mime="application/pdf",
+                            key=f"dl_doc_{d['id']}"
+                        )
+                else:
+                    st.error("Файл не найден")
+            with c3:
+                if st.button("🗑️", key=f"del_doc_{d['id']}", help="Удалить документ"):
+                    if os.path.exists(d['file_path']):
+                        os.remove(d['file_path'])
+                    db.delete_group_document(d['id'])
+                    db.log_action(USER_ID, "doc_delete", f"Удален документ '{d['doc_type']}' для группы {group['name']}")
+                    st.success("Документ удален")
+                    st.rerun()
+
+    st.divider()
+
+    # --- 3. СГЕНЕРИРОВАННЫЕ ПРОТОКОЛЫ ---
+    st.write("### 📊 Сгенерированные протоколы")
     protocols = db.get_protocols_for_group(group["id"])
 
-    if protocols:
-        df_p = pd.DataFrame([
-            {
-                "ID": p["id"],
-                "Название": p["title"] or "—",
-                "Тема": p["topic"] or "Все",
-                "Статус": "Закрыт" if p["status"] == "closed" else "Открыт",
-                "Начат": p["started_at"].strftime("%d.%m.%Y %H:%M") if p.get("started_at") else "—",
-                "Закрыт": p["closed_at"].strftime("%d.%m.%Y %H:%M") if p.get("closed_at") else "—",
-            }
-            for p in protocols
-        ])
-        st.dataframe(df_p, use_container_width=True, hide_index=True)
-        
-        st.subheader("📥 Управление протоколами")
+    if not protocols:
+        st.info("Автоматические протоколы еще не создавались.")
+    else:
         for p in protocols:
-            c1, c2 = st.columns([3, 1])
+            c1, c2 = st.columns([4, 1])
             with c1:
+                status = "Закрыт" if p["status"] == "closed" else "Открыт"
+                st.write(f"**Протокол #{p['id']}** — {p['title'] or 'Без названия'}")
+                st.caption(f"Статус: {status} | Начат: {p['started_at'].strftime('%d.%m.%Y %H:%M') if p.get('started_at') else '—'}")
+            with c2:
                 if p.get("file_path") and os.path.exists(p["file_path"]):
                     with open(p["file_path"], "rb") as f:
-                        file_bytes = f.read()
-                    st.download_button(
-                        f"📄 Скачать протокол #{p['id']} ({p['title']})",
-                        data=file_bytes,
-                        file_name=os.path.basename(p["file_path"]),
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key=f"dl_protocol_{p['id']}"
-                    )
+                        st.download_button(
+                            "📥 Скачать",
+                            data=f.read(),
+                            file_name=os.path.basename(p["file_path"]),
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key=f"dl_protocol_{p['id']}"
+                        )
                 else:
-                    st.warning(f"Файл для протокола #{p['id']} не найден на диске.")
-            
-            with c2:
-                confirm_key = f"confirm_del_protocol_{p['id']}"
-                if st.session_state.get(confirm_key):
-                    st.error("Точно удалить?")
-                    if st.button("🔥 Да", key=f"btn_confirm_{p['id']}", type="primary", use_container_width=True):
-                        db.delete_protocol(p["id"])
-                        db.log_action(USER_ID, "protocol_delete", f"Удален протокол #{p['id']}. Группа активирована.")
-                        st.session_state.pop(confirm_key, None)
-                        st.success("Протокол удален, группа активна")
-                        st.rerun()
-                    if st.button("❌ Нет", key=f"btn_cancel_{p['id']}", use_container_width=True):
-                        st.session_state.pop(confirm_key, None)
-                        st.rerun()
-                else:
-                    if st.button("🗑️ Удалить", key=f"btn_del_{p['id']}", use_container_width=True):
-                        st.session_state[confirm_key] = True
-                        st.rerun()
-    else:
-        st.info("Протоколов пока нет")
+                    st.warning("Файл не найден")

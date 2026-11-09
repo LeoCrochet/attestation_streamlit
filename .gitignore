@@ -67,3 +67,4 @@ packages_transfer/
 *.zip
 venv/
 protocols/
+uploads/

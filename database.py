@@ -773,3 +773,26 @@ class Database:
             logger.error(f"❌ Error deleting protocol: {e}")
             return False
         
+    def add_group_document(self, group_id, doc_type, file_name, file_path, uploaded_by):
+        """Добавить документ к группе."""
+        self.execute_query("""
+            INSERT INTO group_documents (group_id, doc_type, file_name, file_path, uploaded_by)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (group_id, doc_type, file_name, file_path, uploaded_by), commit=True)
+        return True
+
+    def get_group_documents(self, group_id):
+        """Получить список документов группы."""
+        cursor = self.get_cursor()
+        cursor.execute("""
+            SELECT * FROM group_documents 
+            WHERE group_id = %s 
+            ORDER BY uploaded_at DESC
+        """, (group_id,))
+        return cursor.fetchall()
+
+    def delete_group_document(self, doc_id):
+        """Удалить документ группы (запись в БД)."""
+        self.execute_query("DELETE FROM group_documents WHERE id = %s", (doc_id,), commit=True)
+        return True
+        

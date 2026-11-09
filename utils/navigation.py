@@ -6,7 +6,7 @@ from utils.session import clear_session
 NAV_ITEMS = [
     ("pages/0_📈_Дашборд.py",            "Дашборд",           "📈", {"methodist", "admin"}),
     ("pages/1_📝_Тестирование.py",        "Тестирование",      "📝", {"user", "manager", "methodist", "admin"}),
-    ("pages/2_📊_Результаты.py",          "Мои результаты",    "📊", {"user", "manager", "methodist", "admin"}),
+    ("pages/2_📊_Результаты.py",          "Результаты",    "📊", {"user", "manager", "methodist", "admin"}),
     ("pages/3_👤_Профиль.py",             "Профиль",           "👤", {"user", "manager", "methodist", "admin"}),
     ("pages/4_⚙️_Администрирование.py",   "Администрирование", "⚙️", {"admin"}),
     ("pages/5_👨‍🏫_Методист.py",           "Кабинет методиста", "👨‍🏫", {"methodist", "admin"}),

@@ -1,10 +1,13 @@
-"""👨‍🏫 Кабинет методиста — редактор вопросов и тем."""
+"""👨‍🏫 Кабинет методиста — редактор вопросов, тем, заданий и статистика."""
 import json as _json
+import datetime as _dt
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
 from utils.session import restore_session
+from utils.navigation import setup_page
 from database import Database
 from utils.auth import require_methodist
 from utils.question_io import (
@@ -16,7 +19,6 @@ from utils.question_io import (
 
 st.set_page_config(page_title="Кабинет методиста", page_icon="👨‍🏫", layout="wide")
 restore_session()
-from utils.navigation import setup_page
 setup_page()
 require_methodist()
 
@@ -32,7 +34,21 @@ if "pending_edit_qid" in st.session_state:
     st.session_state["m_edit_q"] = db.get_question_by_id(qid)
 
 st.title("👨‍🏫 Кабинет методиста")
-st.caption("Редактор вопросов, тем и содержания")
+
+# ==================================================================
+# СВОДНЫЕ МЕТРИКИ БАНКА ВОПРОСОВ
+# ==================================================================
+stats = db.get_questions_stats()
+if stats and stats.get("overall"):
+    o = stats["overall"]
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("📚 Всего вопросов", o["total"] or 0)
+    c2.metric("✅ Активных", o["active"] or 0)
+    c3.metric("🗄️ В архиве", o["archived"] or 0)
+    c4.metric("📁 Тем", o["topics"] or 0)
+    c5.metric("⭐ Ср. сложность", f"{(o['avg_difficulty'] or 0):.1f}")
+
+st.divider()
 
 tab_q, tab_edit, tab_add, tab_import, tab_export, tab_stats, tab_assign = st.tabs([
     "📋 Банк вопросов",
@@ -45,13 +61,11 @@ tab_q, tab_edit, tab_add, tab_import, tab_export, tab_stats, tab_assign = st.tab
 ])
 
 # ==================================================================
-# ВКЛАДКА 1: БАНК ВОПРОСОВ (МАССОВЫЕ ДЕЙСТВИЯ)
+# ВКЛАДКА 1: БАНК ВОПРОСОВ
 # ==================================================================
 with tab_q:
-    st.subheader("📋 Банк вопросов")
-
     with st.expander("🔍 Фильтры", expanded=True):
-        c1, c2, c3 = st.columns([3, 2, 2])
+        c1, c2, c3, c4 = st.columns([2, 3, 2, 2])
         with c1:
             topics = ["Все"] + db.get_all_topics(include_archived=True)
             f_topic = st.selectbox("Тема", topics, key="m_topic")
@@ -61,9 +75,9 @@ with tab_q:
             f_active = st.selectbox(
                 "Статус", ["Только активные", "Только архив", "Все"], key="m_active",
             )
-        
-        all_tags = db.get_all_tags()
-        f_tag = st.selectbox("Фильтр по тегу", ["Все теги"] + all_tags, key="m_tag_filter")
+        with c4:
+            all_tags = db.get_all_tags()
+            f_tag = st.selectbox("Тег", ["Все теги"] + all_tags, key="m_tag_filter")
 
     c1, c2, c3 = st.columns([1, 1, 3])
     with c1:
@@ -91,7 +105,7 @@ with tab_q:
     )
 
     if not rows:
-        st.info("Ничего не найдено")
+        st.info("Ничего не найдено по заданным фильтрам.")
     else:
         display = []
         for r in rows:
@@ -116,10 +130,10 @@ with tab_q:
             key="m_table",
         )
 
-        # --- МАССОВЫЕ ДЕЙСТВИЯ (ПО ГАЛОЧКАМ) ---
+        # Массовые действия
         selected_ids = edited.loc[edited["✓"] == True, "ID"].tolist()
         if selected_ids:
-            st.info(f"Выбрано галочками: **{len(selected_ids)}** вопросов")
+            st.info(f"Выбрано: **{len(selected_ids)}** вопросов")
             mc1, mc2, mc3, mc4 = st.columns(4)
 
             with mc1:
@@ -158,11 +172,9 @@ with tab_q:
                         st.rerun()
 
 # ==================================================================
-# ВКЛАДКА 2: РЕДАКТИРОВАНИЕ (С ФИЛЬТРАМИ)
+# ВКЛАДКА 2: РЕДАКТИРОВАНИЕ
 # ==================================================================
 with tab_edit:
-    st.subheader("✏️ Редактирование вопроса")
-    
     if st.session_state.get("m_edit_q"):
         q = st.session_state["m_edit_q"]
         
@@ -242,7 +254,6 @@ with tab_edit:
         else:
             st.caption(f"Найдено: **{total}** вопросов (показаны первые 100)")
             
-            # Используем reversed(rows), чтобы новые были сверху
             q_options = {
                 f"#{r['id']} [{r['topic']}] {r['question'][:60]}...": r["id"] 
                 for r in reversed(rows)
@@ -259,7 +270,6 @@ with tab_edit:
 # ВКЛАДКА 3: НОВЫЙ ВОПРОС
 # ==================================================================
 with tab_add:
-    st.subheader("➕ Новый вопрос")
     with st.form("m_add_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
@@ -290,7 +300,7 @@ with tab_add:
                     new_id = db.add_question(
                         topic=a_topic.strip(), question=a_question.strip(),
                         options=opts, correct_answer=correct_index,
-                        difficulty=1, # Дефолтное значение, так как убрали выбор
+                        difficulty=1,
                         created_by=st.session_state.user,
                         tags=a_tags.strip() or None,
                         explanation=a_expl.strip() or None,
@@ -302,8 +312,6 @@ with tab_add:
 # ВКЛАДКА 4: ИМПОРТ
 # ==================================================================
 with tab_import:
-    st.subheader("📥 Импорт вопросов")
-
     c1, c2 = st.columns(2)
     with c1:
         st.download_button(
@@ -365,8 +373,6 @@ with tab_import:
 # ВКЛАДКА 5: ЭКСПОРТ
 # ==================================================================
 with tab_export:
-    st.subheader("📤 Экспорт вопросов")
-
     e1, e2, e3 = st.columns([2, 1, 1])
     with e1:
         export_topic = st.selectbox(
@@ -390,7 +396,6 @@ with tab_export:
 
     if exp_rows:
         st.caption(f"К экспорту: **{len(exp_rows)}** вопросов")
-        import datetime as _dt
         ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
 
         if export_format == "CSV":
@@ -411,21 +416,7 @@ with tab_export:
 # ВКЛАДКА 6: СТАТИСТИКА БАНКА
 # ==================================================================
 with tab_stats:
-    st.subheader("📊 Статистика банка вопросов")
-
-    stats = db.get_questions_stats()
-
-    if stats and stats.get("overall"):
-        o = stats["overall"]
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Всего", o["total"] or 0)
-        c2.metric("Активных", o["active"] or 0)
-        c3.metric("В архиве", o["archived"] or 0)
-        c4.metric("Тем", o["topics"] or 0)
-        c5.metric("Ср. сложность", f"{(o['avg_difficulty'] or 0):.1f}")
-
     if stats and stats.get("by_topic"):
-        st.divider()
         st.write("### 📚 По темам")
         df_topics = pd.DataFrame(stats["by_topic"])
         fig = px.bar(
@@ -460,8 +451,6 @@ with tab_stats:
 # ВКЛАДКА 7: ЗАДАНИЯ
 # ==================================================================
 with tab_assign:
-    st.subheader("📌 Задания для групп")
-
     with st.expander("➕ Создать задание", expanded=False):
         groups = db.get_all_groups(only_active=True)
         if not groups:
@@ -511,8 +500,7 @@ with tab_assign:
                     st.rerun()
 
     st.divider()
-    st.subheader("📋 Все задания")
-
+    
     f_status = st.selectbox("Фильтр по статусу", ["Все", "open", "closed", "archived"], key="a_filter")
     assignments = db.get_all_assignments(status=None if f_status == "Все" else f_status)
 
@@ -531,27 +519,26 @@ with tab_assign:
         ])
         st.dataframe(df_a, use_container_width=True, hide_index=True)
 
-    st.divider()
-    st.subheader("🔍 Детали задания")
+        st.divider()
+        st.subheader("🔍 Детали задания")
 
-    if assignments:
         assign_map = {f"#{a['id']} — {a['title'] or a['group_name']}": a["id"] for a in assignments}
         sel = st.selectbox("Выберите задание", list(assign_map.keys()), key="a_sel")
         aid = assign_map[sel]
 
         assignment = db.get_assignment(aid)
-        stats = db.get_assignment_statistics(aid)
+        stats_a = db.get_assignment_statistics(aid)
 
         if assignment:
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Группа", assignment["group_name"])
             c2.metric("Тема", assignment["topic"] or "Все")
             c3.metric("Проходной", f"{assignment['pass_score']}%")
-            info = stats.get("info") or {}
+            info = stats_a.get("info") or {}
             total = info.get("total_students") or 0
             c4.metric("Студентов", total)
 
-            students = stats.get("students") or []
+            students = stats_a.get("students") or []
             if students:
                 passed = sum(1 for s in students if (s.get("best_score") or 0) >= assignment["pass_score"])
                 c1, c2, c3 = st.columns(3)
@@ -571,8 +558,7 @@ with tab_assign:
                 ])
                 st.dataframe(df_students, use_container_width=True, hide_index=True)
 
-                from datetime import datetime as _dt
-                ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+                ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
                 st.download_button(
                     "📥 Скачать отчёт по заданию (CSV)",
                     data=df_students.to_csv(index=False).encode("utf-8-sig"),

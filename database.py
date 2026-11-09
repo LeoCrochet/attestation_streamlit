@@ -15,6 +15,9 @@ from config import get_config
 
 logger = logging.getLogger(__name__)
 
+# Служебные роли: их тесты не учитываются в статистике
+EXCLUDED_ROLES = ("admin", "methodist")
+
 
 class Database:
     # ==================================================================
@@ -68,6 +71,15 @@ class Database:
             raise
 
     # ==================================================================
+    # ХЕЛПЕРЫ
+    # ==================================================================
+
+    def _exclude_service_roles_sql(self, alias="u"):
+        """SQL-условие: исключить admin/methodist."""
+        placeholders = ", ".join(["%s"] * len(EXCLUDED_ROLES))
+        return f"{alias}.role NOT IN ({placeholders})", list(EXCLUDED_ROLES)
+
+    # ==================================================================
     # ПАРОЛИ
     # ==================================================================
 
@@ -98,7 +110,6 @@ class Database:
             except Error as e:
                 print(f"❌ [init_db] {e}", flush=True)
 
-        # ALTER'ы для старых БД; "duplicate column" глушим
         for q in MIGRATION_ALTERS:
             try:
                 self.execute_query(q, commit=True)
@@ -140,12 +151,11 @@ class Database:
         return cursor.fetchone()
 
     def get_all_users(self, include_inactive=False):
-        """Все пользователи (для админки) с их группами и профилем."""
+        """Все пользователи (для админки) с их группами."""
         cursor = self.get_cursor()
         q = """
-            SELECT u.id, u.username, u.email, u.full_name, u.role, u.department, 
+            SELECT u.id, u.username, u.email, u.full_name, u.role, u.department,
                    u.position, u.is_active, u.created_at, u.last_login,
-                   u.profession, u.education, u.birth_year, u.training_type,
                    GROUP_CONCAT(g.name SEPARATOR ', ') AS groups_list
             FROM users u
             LEFT JOIN group_members gm ON u.id = gm.user_id AND gm.is_active = TRUE
@@ -153,22 +163,16 @@ class Database:
         """
         if not include_inactive:
             q += " WHERE u.is_active = TRUE"
-        
+
         q += " GROUP BY u.id ORDER BY u.id"
         cursor.execute(q)
         return cursor.fetchall()
 
-    def create_user(self, username, password, email=None, full_name=None,
-                    role='user', department=None, position=None,
-                    profession=None, education=None, birth_year=None, training_type=None):
+    def create_user(self, username, password, email=None, full_name=None, role='user', department=None, position=None):
         password_hash = self.hash_password(password)
         self.execute_query(
-            """INSERT INTO users 
-               (username, email, password_hash, full_name, role, department, position,
-                profession, education, birth_year, training_type) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-            (username, email, password_hash, full_name, role, department, position,
-             profession, education, birth_year, training_type), commit=True
+            "INSERT INTO users (username, email, password_hash, full_name, role, department, position) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (username, email, password_hash, full_name, role, department, position), commit=True
         )
         return self.get_user_by_username(username)
 
@@ -269,7 +273,7 @@ class Database:
             where.append("difficulty = %s"); params.append(difficulty)
         if is_active is not None:
             where.append("is_active = %s"); params.append(bool(is_active))
-        
+
         where_sql = " AND ".join(where)
         cursor = self.get_cursor()
         cursor.execute(f"SELECT COUNT(*) AS cnt FROM questions WHERE {where_sql}", params)
@@ -335,7 +339,6 @@ class Database:
         return len(question_ids)
 
     def bulk_restore_questions(self, question_ids, updated_by=None):
-        """Восстановить вопросы из архива (is_active = TRUE)."""
         if not question_ids:
             return 0
         ids_str = ",".join(["%s"] * len(question_ids))
@@ -345,7 +348,7 @@ class Database:
             commit=True
         )
         return len(question_ids)
-    
+
     def bulk_update_topic(self, question_ids, new_topic, updated_by=None):
         if not question_ids: return 0
         ids_str = ",".join(["%s"] * len(question_ids))
@@ -400,13 +403,19 @@ class Database:
         return cursor.fetchall()
 
     def get_user_statistics(self, user_id):
+        """Статистика пользователя. Для admin/methodist — пустая."""
         cursor = self.get_cursor()
+        cursor.execute("SELECT role FROM users WHERE id = %s", (user_id,))
+        row = cursor.fetchone()
+        if row and row["role"] in EXCLUDED_ROLES:
+            return {"overall": None, "by_topic": []}
+
         cursor.execute("SELECT COUNT(*) as total_tests, AVG(score * 100.0 / total_questions) as avg_score, MAX(score * 100.0 / total_questions) as max_score, SUM(score) as total_correct, SUM(total_questions) as total_questions FROM results WHERE user_id = %s", (user_id,))
         overall = cursor.fetchone()
         cursor.execute("SELECT topic, COUNT(*) as tests_count, AVG(score * 100.0 / total_questions) as avg_score FROM results WHERE user_id = %s GROUP BY topic ORDER BY avg_score DESC", (user_id,))
         by_topic = cursor.fetchall()
         return {'overall': overall, 'by_topic': by_topic}
-    
+
     def get_result_details(self, result_id):
         """Получить детальный результат теста (с вопросами и ответами)."""
         cursor = self.get_cursor()
@@ -487,40 +496,47 @@ class Database:
         cursor = self.get_cursor()
         cursor.execute("SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT %s", (limit,))
         return cursor.fetchall()
-    
+
     def get_global_statistics_by_profession(self):
-        """Статистика сдачи тестов в разрезе профессий."""
+        """Статистика сдачи тестов в разрезе профессий (без admin/methodist)."""
         cursor = self.get_cursor()
-        cursor.execute("""
-            SELECT 
+        role_sql, role_params = self._exclude_service_roles_sql("u")
+        cursor.execute(f"""
+            SELECT
                 gm.profession,
-                COUNT(DISTINCT gm.user_id) as total_students,
-                COUNT(r.id) as total_tests,
-                AVG(r.score * 100.0 / NULLIF(r.total_questions, 0)) as avg_score
+                COUNT(DISTINCT gm.user_id) AS total_students,
+                COUNT(r.id) AS total_tests,
+                AVG(r.score * 100.0 / NULLIF(r.total_questions, 0)) AS avg_score
             FROM group_members gm
+            JOIN users u ON u.id = gm.user_id
             JOIN results r ON r.user_id = gm.user_id
             WHERE gm.profession IS NOT NULL AND gm.profession != ''
+              AND {role_sql}
             GROUP BY gm.profession
             ORDER BY avg_score DESC
-        """)
+        """, role_params)
         return cursor.fetchall()
 
     def get_global_statistics_by_month(self):
-        """Статистика сдачи тестов по месяцам."""
+        """Статистика сдачи тестов по месяцам (без admin/methodist)."""
         cursor = self.get_cursor()
-        cursor.execute("""
-            SELECT 
-                DATE_FORMAT(date, '%Y-%m') as month,
-                COUNT(*) as total_tests,
-                AVG(score * 100.0 / NULLIF(total_questions, 0)) as avg_score
-            FROM results
-            GROUP BY DATE_FORMAT(date, '%Y-%m')
+        role_sql, role_params = self._exclude_service_roles_sql("u")
+        cursor.execute(f"""
+            SELECT
+                DATE_FORMAT(r.date, '%%Y-%%m') AS month,
+                COUNT(*) AS total_tests,
+                AVG(r.score * 100.0 / NULLIF(r.total_questions, 0)) AS avg_score
+            FROM results r
+            JOIN users u ON u.id = r.user_id
+            WHERE {role_sql}
+            GROUP BY DATE_FORMAT(r.date, '%%Y-%%m')
             ORDER BY month ASC
-        """)
+        """, role_params)
         return cursor.fetchall()
 
     # ==================================================================
     # ГРУППЫ ОБУЧЕНИЯ
+    # (админ/методист в группы не попадают — фильтр по роли не нужен)
     # ==================================================================
 
     def get_all_groups(self, only_active=False, include_member_count=True):
@@ -543,11 +559,11 @@ class Database:
                 (name, description, curator_id, start_date, end_date, created_by)
             )
             self.connection.commit()
-            
+
             cursor.execute("SELECT id FROM `groups` WHERE name = %s", (name,))
             row = cursor.fetchone()
             return row["id"] if row else None
-            
+
         except Error as e:
             self.connection.rollback()
             logger.error(f"❌ Error creating group: {e}")
@@ -564,12 +580,10 @@ class Database:
         return self.update_group(group_id, is_active=False)
 
     def hard_delete_group(self, group_id):
-        """Полное удаление группы и всех её данных (участники, задания, протоколы)."""
-        # Сначала удаляем связанные данные (на всякий случай, если нет каскадного удаления)
+        """Полное удаление группы и всех её данных."""
         self.execute_query("DELETE FROM protocols WHERE group_id = %s", (group_id,), commit=True)
         self.execute_query("DELETE FROM assignments WHERE group_id = %s", (group_id,), commit=True)
         self.execute_query("DELETE FROM group_members WHERE group_id = %s", (group_id,), commit=True)
-        # Удаляем саму группу
         self.execute_query("DELETE FROM `groups` WHERE id = %s", (group_id,), commit=True)
         return True
 
@@ -640,7 +654,6 @@ class Database:
         """Закрыть обучение группы и создать финальный протокол."""
         cursor = self.get_cursor()
         try:
-            # Берем дату начала из самой группы, если она есть. Если нет — текущую.
             cursor.execute("SELECT start_date FROM `groups` WHERE id = %s", (group_id,))
             group_row = cursor.fetchone()
             started_at = group_row["start_date"] if group_row and group_row["start_date"] else datetime.datetime.now()
@@ -651,7 +664,7 @@ class Database:
             """, (group_id, "Итоговый протокол по группе", "Сформирован при завершении обучения", started_at, closed_by, closed_by))
             self.connection.commit()
             protocol_id = cursor.lastrowid
-            
+
             self.execute_query("UPDATE assignments SET status = 'closed' WHERE group_id = %s AND status = 'open'", (group_id,), commit=True)
             self.update_group(group_id, is_active=False)
             return protocol_id
@@ -668,33 +681,27 @@ class Database:
     def close_protocol(self, protocol_id):
         self.execute_query("UPDATE protocols SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = %s", (protocol_id,), commit=True)
         return True
-    
+
     def delete_protocol(self, protocol_id):
         """Удалить протокол и вернуть группу в активный статус."""
         cursor = self.get_cursor()
         try:
-            # 1. Узнаем, к какой группе относится протокол
             cursor.execute("SELECT group_id FROM protocols WHERE id = %s", (protocol_id,))
             row = cursor.fetchone()
-            
+
             if row:
                 group_id = row["group_id"]
-                
-                # 2. Возвращаем группу в активный статус
                 self.update_group(group_id, is_active=True)
-                
-                # 3. Открываем задания группы заново
                 self.execute_query("UPDATE assignments SET status = 'open' WHERE group_id = %s", (group_id,), commit=True)
 
-            # 4. Удаляем сам протокол
             self.execute_query("DELETE FROM protocols WHERE id = %s", (protocol_id,), commit=True)
             return True
-            
+
         except Error as e:
             self.connection.rollback()
             logger.error(f"❌ Error deleting protocol: {e}")
             return False
-        
+
     def add_group_document(self, group_id, doc_type, file_name, file_path, uploaded_by):
         """Добавить документ к группе."""
         self.execute_query("""
@@ -707,8 +714,8 @@ class Database:
         """Получить список документов группы."""
         cursor = self.get_cursor()
         cursor.execute("""
-            SELECT * FROM group_documents 
-            WHERE group_id = %s 
+            SELECT * FROM group_documents
+            WHERE group_id = %s
             ORDER BY uploaded_at DESC
         """, (group_id,))
         return cursor.fetchall()
@@ -717,4 +724,3 @@ class Database:
         """Удалить документ группы (запись в БД)."""
         self.execute_query("DELETE FROM group_documents WHERE id = %s", (doc_id,), commit=True)
         return True
-        

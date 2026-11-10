@@ -1,11 +1,5 @@
-"""
-Единая схема БД.
-Используется и init_database.py, и Database.init_db() — чтобы не было рассинхрона.
-"""
+"""Единая схема БД — используется и init_database.py, и Database.init_db()."""
 
-# ==================================================================
-# СОЗДАНИЕ ТАБЛИЦ
-# ==================================================================
 SCHEMA_QUERIES = [
     # 1. ПОЛЬЗОВАТЕЛИ
     """
@@ -89,7 +83,7 @@ SCHEMA_QUERIES = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
 
-      # 5. ЗАДАНИЯ
+    # 5. ЗАДАНИЯ
     """
     CREATE TABLE IF NOT EXISTS assignments (
         id INT PRIMARY KEY AUTO_INCREMENT,
@@ -104,7 +98,7 @@ SCHEMA_QUERIES = [
         due_date TIMESTAMP NULL DEFAULT NULL,
         starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         status ENUM('open', 'closed', 'archived') DEFAULT 'open',
-        is_training BOOLEAN DEFAULT FALSE, # <--- ДОБАВЛЯЕМ СЮДА
+        is_training BOOLEAN DEFAULT FALSE,
         created_by VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE
@@ -192,11 +186,6 @@ SCHEMA_QUERIES = [
     """,
 ]
 
-
-# ==================================================================
-# ALTER'Ы для обратной совместимости со старыми БД
-# Выполняются после CREATE TABLE; ошибки "дубликат колонки" глушатся.
-# ==================================================================
 MIGRATION_ALTERS = [
     "ALTER TABLE `groups` ADD COLUMN organization_name VARCHAR(255) DEFAULT NULL",
     "ALTER TABLE `groups` ADD COLUMN organization_address VARCHAR(255) DEFAULT NULL",

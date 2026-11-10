@@ -26,9 +26,15 @@ def init_full_db():
     logger.info("Применяю ALTER'ы для старых БД...")
     for q in MIGRATION_ALTERS:
         try:
-            db.execute_query(q, commit=True)
-        except Exception:
-            pass  # колонка уже существует — нормально
+            # Выполняем без коммита, чтобы избежать блокировок при ошибках
+            cursor = db.get_cursor()
+            cursor.execute(q)
+            db.connection.commit()
+        except Exception as e:
+            # Игнорируем ошибку дубликата колонки (1060)
+            if "1060" not in str(e) and "Duplicate column" not in str(e):
+                logger.error(f"Ошибка миграции: {e}")
+            pass
 
     try:
         logger.info("Добавляю пользователей по умолчанию...")

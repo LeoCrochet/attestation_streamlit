@@ -17,3 +17,7 @@ font = "sans serif"
 [client]
 # Отключаем стандартное меню навигации (мы используем свое)
 showSidebarNavigation = false
+
+[server]
+enableCORS = false
+enableXsrfProtection = false

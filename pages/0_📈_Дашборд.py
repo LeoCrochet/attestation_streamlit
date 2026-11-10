@@ -113,6 +113,53 @@ c4.metric("🎯 Средний балл", f"{global_avg:.1f}%")
 st.divider()
 
 # ==================================================================
+# 1.5. АКТИВНЫЕ ЗАДАНИЯ (БЫСТРЫЙ ДОСТУП)
+# ==================================================================
+st.subheader("🔥 Активные задания")
+
+# Получаем только открытые задания
+active_assignments = db.get_all_assignments(status="open")
+
+if not active_assignments:
+    st.info("📌 Нет активных заданий. Создайте их в разделе «👨‍🏫 Методист -> 📌 Задания».")
+else:
+    # Выводим задания в виде карточек
+    for a in active_assignments:
+        with st.container(border=True):
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            
+            with c1:
+                st.markdown(f"**{a['title'] or 'Без названия'}**")
+                st.caption(f"Группа: {a['group_name']} | Тема: {a['topic'] or 'Все'}")
+                
+            with c2:
+                st.write(f"Вопросов: {a['num_questions']}")
+                st.write(f"Проходной: {a['pass_score']}%")
+                
+            with c3:
+                # Считаем прогресс сдачи
+                total_students = a.get("total_students") or 1
+                completed = a.get("completed_count") or 0
+                progress_pct = int((completed / total_students) * 100)
+                st.write(f"Сдали: {completed} из {total_students}")
+                st.progress(progress_pct / 100, text=f"{progress_pct}%")
+                
+            with c4:
+                # Кнопка перехода к составу группы
+                if st.button("👤 Группа", key=f"dash_go_group_{a['id']}", use_container_width=True):
+                    st.session_state["current_group_id"] = a["group_id"]
+                    st.switch_page("pages/9_👤_Состав_группы.py")
+                    
+               # Кнопка перехода к деталям задания
+                if st.button("📌 Задание", key=f"dash_go_assign_{a['id']}", use_container_width=True):
+                    # Сохраняем ID в session_state и переходим
+                    st.session_state["target_assignment_id"] = a["id"]
+                    st.switch_page("pages/10_📌_Задания.py")
+                    
+
+st.divider()
+
+# ==================================================================
 # 2. УСПЕВАЕМОСТЬ И АНАЛИТИКА
 # ==================================================================
 c1, c2 = st.columns(2)
@@ -120,7 +167,7 @@ c1, c2 = st.columns(2)
 with c1:
     st.subheader("🎯 Успеваемость по заданиям")
     if passed == 0 and failed == 0:
-        st.info("Пока нет пройденных заданий для анализа.")
+        st.info("📊 Пока нет пройденных заданий. Как только сотрудники начнут сдавать тесты, здесь появится статистика.")
     else:
         df_status = pd.DataFrame({
             "Статус": ["Сдали", "Не сдали"],
@@ -131,14 +178,18 @@ with c1:
             hole=0.4, color="Статус",
             color_discrete_map={"Сдали": "#2ECC71", "Не сдали": "#E74C3C"},
         )
-        fig_pie.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+        fig_pie.update_layout(
+            margin=dict(t=0, b=0, l=0, r=0),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+        )
         st.plotly_chart(fig_pie, use_container_width=True)
 
 with c2:
     st.subheader("👷‍♂️ Качество знаний по профессиям")
     prof_stats = db.get_global_statistics_by_profession()
     if not prof_stats:
-        st.info("Нет данных о профессиях сотрудников.")
+        st.info("👷‍♂️ Нет данных о профессиях. Убедитесь, что у сотрудников заполнено поле «Профессия» в группах.")
     else:
         df_prof = pd.DataFrame(prof_stats)
         df_prof["avg_score"] = df_prof["avg_score"].round(1)
@@ -148,7 +199,14 @@ with c2:
             color="avg_score", color_continuous_scale="RdYlGn", range_color=[0, 100],
         )
         fig_prof.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-        fig_prof.update_layout(height=350, showlegend=False)
+        fig_prof.update_layout(
+            height=350, 
+            showlegend=False,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            yaxis=dict(showgrid=True, gridcolor='rgba(200,200,200,0.2)'),
+            xaxis=dict(showgrid=False)
+        )
         st.plotly_chart(fig_prof, use_container_width=True)
 
 st.divider()
@@ -160,7 +218,7 @@ st.subheader("📅 Динамика сдачи тестов")
 month_stats = db.get_global_statistics_by_month()
 
 if not month_stats:
-    st.info("Пока нет данных для построения динамики.")
+    st.info("📅 Пока нет данных для построения динамики. Проведите несколько тестов, чтобы увидеть график.")
 else:
     df_month = pd.DataFrame(month_stats)
     df_month["avg_score"] = df_month["avg_score"].round(1)
@@ -169,7 +227,13 @@ else:
         markers=True, title="Количество сданных тестов по месяцам",
         labels={"month": "Месяц", "total_tests": "Количество тестов"},
     )
-    fig_month.update_layout(height=300)
+    fig_month.update_layout(
+        height=300,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        yaxis=dict(showgrid=True, gridcolor='rgba(200,200,200,0.2)'),
+        xaxis=dict(showgrid=False)
+    )
     st.plotly_chart(fig_month, use_container_width=True)
 
 st.divider()
@@ -182,7 +246,7 @@ c1, c2 = st.columns(2)
 with c1:
     st.subheader("👥 Активность групп")
     if not all_groups:
-        st.info("Групп пока нет.")
+        st.info("👥 Групп пока нет. Создайте первую в разделе «👥 Группы обучения».")
     else:
         group_data = []
         for g in all_groups:
@@ -232,7 +296,7 @@ with c2:
     lagging = cursor.fetchall()
 
     if not lagging:
-        st.success("Отлично! Все пользователи имеют средний балл выше 60%.")
+        st.success("✅ Отлично! Все пользователи имеют средний балл выше 60%.")
     else:
         df_lag = pd.DataFrame(lagging)
         df_lag["avg_score"] = df_lag["avg_score"].round(1)
@@ -275,4 +339,4 @@ if recent:
         },
     )
 else:
-    st.info("Результатов пока нет.")
+    st.info("🕓 Результатов пока нет.")

@@ -1,2 +1,19 @@
+[theme]
+# Основной акцентный цвет (кнопки, ссылки, выделение)
+primaryColor = "#2E86C1" 
+
+# Цвет фона
+backgroundColor = "#FFFFFF"
+
+# Цвет фона сайдбара и второстепенных элементов
+secondaryBackgroundColor = "#F4F6F7"
+
+# Цвет текста
+textColor = "#1E1E1E"
+
+# Шрифт
+font = "sans serif"
+
 [client]
+# Отключаем стандартное меню навигации (мы используем свое)
 showSidebarNavigation = false

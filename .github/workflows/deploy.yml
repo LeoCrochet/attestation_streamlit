@@ -1,0 +1,25 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ "develop" ] # Срабатывает только при пуше в ветку develop
+
+jobs:
+  deploy:
+    runs-on: self-hosted # Указываем, что задача должна идти на наш сервер
+
+    steps:
+      - name: Pull latest changes
+        run: |
+          cd /opt/attestation_streamlit
+          git fetch origin develop
+          git reset --hard origin/develop
+          
+      - name: Install dependencies (if changed)
+        run: |
+          cd /opt/attestation_streamlit
+          ./venv/bin/pip install -r requirements.txt
+
+      - name: Restart Streamlit Service
+        run: |
+          sudo systemctl restart attestation-streamlit

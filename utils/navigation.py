@@ -92,6 +92,14 @@ def render_navigation():
     role = st.session_state.get("role")
     if not role:
         return
+    
+    # 1. Кнопка на главную страницу (Помощник)
+    if st.button("🏠 Главная (Помощник)", use_container_width=True, key="nav_home"):
+        st.switch_page("app.py")
+        
+    st.divider() # Визуальный разделитель
+
+    # 2. Остальные разделы
     for path, label, icon, roles in NAV_ITEMS:
         if role not in roles:
             continue

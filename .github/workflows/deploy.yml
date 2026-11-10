@@ -14,6 +14,12 @@ jobs:
           cd /opt/attestation_streamlit
           git fetch origin develop
           git reset --hard origin/develop
+      
+      - name: Fix Permissions
+        run: |
+          sudo chmod -R 777 /opt/attestation_streamlit/protocols
+          sudo chmod -R 777 /opt/attestation_streamlit/uploads
+          sudo chmod -R 777 /opt/attestation_streamlit/templates
           
       - name: Install dependencies (if changed)
         run: |

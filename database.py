@@ -489,12 +489,12 @@ class Database:
     # ЗАДАНИЯ
     # ==================================================================
 
-    def create_assignment(self, group_id, topic=None, num_questions=10, max_attempts=1, time_limit_min=None, pass_score=60, title=None, description=None, due_date=None, created_by=None):
+    def create_assignment(self, group_id, topic=None, num_questions=10, max_attempts=1, time_limit_min=None, pass_score=60, title=None, description=None, due_date=None, created_by=None, is_training=False):
         cursor = self.get_cursor()
         try:
             cursor.execute(
-                "INSERT INTO assignments (group_id, topic, num_questions, max_attempts, time_limit_min, pass_score, title, description, due_date, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (group_id, topic, num_questions, max_attempts, time_limit_min, pass_score, title, description, due_date, created_by)
+                "INSERT INTO assignments (group_id, topic, num_questions, max_attempts, time_limit_min, pass_score, title, description, due_date, created_by, is_training) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (group_id, topic, num_questions, max_attempts, time_limit_min, pass_score, title, description, due_date, created_by, is_training)
             )
             self.connection.commit()
             return cursor.lastrowid

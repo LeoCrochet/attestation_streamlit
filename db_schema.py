@@ -89,7 +89,7 @@ SCHEMA_QUERIES = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
 
-    # 5. ЗАДАНИЯ
+      # 5. ЗАДАНИЯ
     """
     CREATE TABLE IF NOT EXISTS assignments (
         id INT PRIMARY KEY AUTO_INCREMENT,
@@ -104,6 +104,7 @@ SCHEMA_QUERIES = [
         due_date TIMESTAMP NULL DEFAULT NULL,
         starts_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         status ENUM('open', 'closed', 'archived') DEFAULT 'open',
+        is_training BOOLEAN DEFAULT FALSE, # <--- ДОБАВЛЯЕМ СЮДА
         created_by VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE
@@ -209,4 +210,5 @@ MIGRATION_ALTERS = [
     "ALTER TABLE group_members ADD COLUMN training_type VARCHAR(100) DEFAULT NULL",
     "ALTER TABLE protocols ADD COLUMN file_path VARCHAR(255) DEFAULT NULL",
     "ALTER TABLE protocols ADD COLUMN closed_by VARCHAR(50) DEFAULT NULL",
+    "ALTER TABLE assignments ADD COLUMN is_training BOOLEAN DEFAULT FALSE",
 ]

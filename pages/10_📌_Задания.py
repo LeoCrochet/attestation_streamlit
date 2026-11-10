@@ -45,6 +45,9 @@ def show_assignment_details(aid):
     st.subheader(f"{assignment['title'] or 'Без названия'}")
     st.caption(f"Группа: **{assignment['group_name']}** | Тема: {assignment['topic'] or 'Все'}")
     
+    if assignment.get("is_training"):
+        st.info("🎓 **Это тренировочное задание.** Результаты не сохраняются в статистику.")
+
     # --- УПРАВЛЕНИЕ СТАТУСОМ ---
     c_stat1, c_stat2 = st.columns(2)
     with c_stat1:
@@ -123,6 +126,9 @@ def edit_assignment_dialog(aid):
             e_pass = st.slider("Проходной балл, %", 0, 100, value=assignment["pass_score"], step=5)
             e_time = st.number_input("Лимит времени, мин (0 = без)", 0, 300, value=assignment["time_limit_min"] or 0)
             
+            # --- РЕДАКТИРОВАНИЕ ФЛАГА ТРЕНИРОВКИ ---
+            e_is_training = st.checkbox("Тренировочное (без сохранения результата)", value=bool(assignment.get("is_training")))
+            
             default_due_date = assignment["due_date"].date() if assignment.get("due_date") else None
             e_due_date = st.date_input("Дедлайн (дата)", value=default_due_date)
             
@@ -148,7 +154,8 @@ def edit_assignment_dialog(aid):
                 pass_score=e_pass,
                 title=e_title.strip() or None,
                 description=e_desc.strip() or None,
-                due_date=due
+                due_date=due,
+                is_training=e_is_training
             )
             db.log_action(USER_ID, "assignment_update", f"Задание #{aid} обновлено")
             st.success("✅ Сохранено!")
@@ -186,6 +193,9 @@ with st.expander("➕ Создать новое задание", expanded=False)
                 a_attempts = st.number_input("Макс. попыток", 1, 10, 1)
                 a_pass = st.slider("Проходной балл, %", 0, 100, 60, 5)
                 a_time = st.number_input("Ограничение времени, мин (0 = без)", 0, 300, 0)
+                
+                # --- ФЛАГ ТРЕНИРОВКИ ПРИ СОЗДАНИИ ---
+                a_is_training = st.checkbox("Тренировочное (без сохранения результата)", value=False)
 
             c_due1, c_due2 = st.columns(2)
             with c_due1:
@@ -208,6 +218,7 @@ with st.expander("➕ Создать новое задание", expanded=False)
                     time_limit_min=time_limit, pass_score=a_pass,
                     title=a_title.strip() or None, description=a_desc.strip() or None,
                     due_date=due, created_by=st.session_state.user,
+                    is_training=a_is_training
                 )
                 db.log_action(USER_ID, "assignment_create", f"Задание #{aid} для группы {a_group_label}")
                 st.success(f"✅ Задание создано (ID: {aid})")
@@ -270,6 +281,10 @@ else:
             with c1:
                 st.markdown(f"### {a['title'] or 'Без названия'}")
                 st.caption(f"**Группа:** {a['group_name']} | **Тема:** {a['topic'] or 'Все'} | **Вопросов:** {a['num_questions']}")
+                
+                # Метка тренировки
+                if a.get("is_training"):
+                    st.markdown("🎓 **Тренировочное (без сохранения)**")
                 
                 if a.get("due_date"):
                     now = datetime.now()

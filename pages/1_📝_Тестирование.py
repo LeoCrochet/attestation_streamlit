@@ -91,6 +91,11 @@ if not st.session_state.get("test_questions"):
                 with c1:
                     st.markdown(f"**{a['title'] or a['topic'] or 'Все темы'}**")
                     st.caption(f"Группа: {a['group_name']} • Вопросов: {a['num_questions']} • Проходной: {a['pass_score']}%")
+                    
+                    # Метка тренировки
+                    if a.get("is_training"):
+                        st.caption("🎓 **Тренировка:** результаты не сохраняются в статистику.")
+                    
                     st.markdown(
                         f"Дедлайн: :{deadline_color}[{deadline_str}]", 
                         unsafe_allow_html=True
@@ -215,12 +220,22 @@ elif not st.session_state.get("test_finished"):
                         user_groups = db.get_user_groups(st.session_state.user_id)
                         group_id = user_groups[0]["id"] if len(user_groups) == 1 else None
 
-                    db.save_result(
-                        user_id=st.session_state.user_id, user_name=st.session_state.user,
-                        topic=st.session_state.get("test_topic", "Все"), answers=answers_detail,
-                        score=score, total=len(qs), time_spent=int(time.time() - st.session_state.test_start),
-                        group_id=group_id, assignment_id=assignment_id,
-                    )
+                    # --- ПРОВЕРКА НА ТРЕНИРОВКУ ---
+                    is_training = False
+                    if assignment_id:
+                        assignment = db.get_assignment(assignment_id)
+                        if assignment and assignment.get("is_training"):
+                            is_training = True
+
+                    if is_training:
+                        st.toast("🎓 Это была тренировка. Результат не сохранен в базу.", icon="ℹ️")
+                    else:
+                        db.save_result(
+                            user_id=st.session_state.user_id, user_name=st.session_state.user,
+                            topic=st.session_state.get("test_topic", "Все"), answers=answers_detail,
+                            score=score, total=len(qs), time_spent=int(time.time() - st.session_state.test_start),
+                            group_id=group_id, assignment_id=assignment_id,
+                        )
                     st.session_state.test_finished = True
                     st.session_state.balloons_shown = False
                     st.rerun()
@@ -270,12 +285,22 @@ elif not st.session_state.get("test_finished"):
                     user_groups = db.get_user_groups(st.session_state.user_id)
                     group_id = user_groups[0]["id"] if len(user_groups) == 1 else None
 
-                db.save_result(
-                    user_id=st.session_state.user_id, user_name=st.session_state.user,
-                    topic=st.session_state.get("test_topic", "Все"), answers=answers_detail,
-                    score=score, total=len(qs), time_spent=int(time.time() - st.session_state.test_start),
-                    group_id=group_id, assignment_id=assignment_id,
-                )
+                # --- ПРОВЕРКА НА ТРЕНИРОВКУ ---
+                is_training = False
+                if assignment_id:
+                    assignment = db.get_assignment(assignment_id)
+                    if assignment and assignment.get("is_training"):
+                        is_training = True
+
+                if is_training:
+                    st.toast("🎓 Это была тренировка. Результат не сохранен в базу.", icon="ℹ️")
+                else:
+                    db.save_result(
+                        user_id=st.session_state.user_id, user_name=st.session_state.user,
+                        topic=st.session_state.get("test_topic", "Все"), answers=answers_detail,
+                        score=score, total=len(qs), time_spent=int(time.time() - st.session_state.test_start),
+                        group_id=group_id, assignment_id=assignment_id,
+                    )
                 st.session_state.test_finished = True
                 st.session_state.balloons_shown = False
                 st.rerun()

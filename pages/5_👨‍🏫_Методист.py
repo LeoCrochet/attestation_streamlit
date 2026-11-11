@@ -312,7 +312,8 @@ with tab_add:
 # ВКЛАДКА 4: ИМПОРТ
 # ==================================================================
 with tab_import:
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3) # Делаем три колонки
+    
     with c1:
         st.download_button(
             "📄 Шаблон CSV",
@@ -327,6 +328,19 @@ with tab_import:
             file_name="questions_template.json", mime="application/json",
             use_container_width=True,
         )
+    with c3:
+        # НОВАЯ КНОПКА ДЛЯ WORD
+        if os.path.exists("templates/test_template.docx"):
+            with open("templates/test_template.docx", "rb") as f:
+                st.download_button(
+                    "📄 Шаблон Word (.docx)",
+                    data=f.read(),
+                    file_name="Шаблон_импорт_теста.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
+                )
+        else:
+            st.button("📄 Шаблон Word (нет файла)", disabled=True, use_container_width=True)
 
     st.divider()
     uploaded = st.file_uploader("Выберите файл (CSV, JSON или Word)", type=["csv", "json", "docx"], key="m_up")

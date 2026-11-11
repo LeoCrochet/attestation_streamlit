@@ -41,49 +41,51 @@ def show_answers_dialog(result_id):
     answers = json.loads(res['answers']) if isinstance(res['answers'], str) else res['answers']
     
     if isinstance(answers, dict):
-        st.warning("⚠️ Это старый формат ответов. Пройдите тест заново, чтобы увидеть детали.")
+        st.warning("⚠️ Это старый формат ответов. Пройдите тест заново.")
         return
-        
+
     for i, ans in enumerate(answers, start=1):
         st.markdown(f"### Вопрос {i}: {ans.get('question_text', '—')}")
         
         opts = ans.get("options", [])
-        user_idx = ans.get("user_answer_idx")
-        correct_idx = ans.get("correct_answer_idx")
         
-        for opt_i, opt_text in enumerate(opts):
-            is_user_choice = (opt_i == user_idx)
-            is_correct = (opt_i == correct_idx)
+        # Жесткая нормализация списков
+        raw_user = ans.get("user_answer_idx")
+        raw_correct = ans.get("correct_answer_idx")
+        
+        user_list = []
+        if isinstance(raw_user, list):
+            for x in raw_user: 
+                if isinstance(x, list): user_list.extend(x)
+                else: user_list.append(x)
+        elif raw_user is not None:
+            user_list = [raw_user]
             
-            if is_correct and is_user_choice:
-                st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, верно)*")
-            elif is_correct:
-                st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Правильный ответ)*")
-            elif is_user_choice:
-                st.error(f"❌ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, неверно)*")
+        correct_list = []
+        if isinstance(raw_correct, list):
+            for x in raw_correct:
+                if isinstance(x, list): correct_list.extend(x)
+                else: correct_list.append(x)
+        elif raw_correct is not None:
+            correct_list = [raw_correct]
+
+        # Выводим варианты через HTML
+        for opt_i, opt_text in enumerate(opts):
+            is_user = (opt_i in user_list)
+            is_corr = (opt_i in correct_list)
+            
+            letter = chr(65 + opt_i)
+            
+            if is_user and is_corr:
+                st.markdown(f"<div style='background-color: #d4edda; color: #155724; padding: 8px; border-radius: 5px; margin-bottom: 5px;'>✅ <b>{letter}. {opt_text}</b> <i>(Верно)</i></div>", unsafe_allow_html=True)
+            elif is_corr:
+                st.markdown(f"<div style='background-color: #cce5ff; color: #004085; padding: 8px; border-radius: 5px; margin-bottom: 5px;'>ℹ️ <b>{letter}. {opt_text}</b> <i>(Правильный ответ)</i></div>", unsafe_allow_html=True)
+            elif is_user:
+                st.markdown(f"<div style='background-color: #f8d7da; color: #721c24; padding: 8px; border-radius: 5px; margin-bottom: 5px;'>❌ <b>{letter}. {opt_text}</b> <i>(Выбрано неверно)</i></div>", unsafe_allow_html=True)
             else:
-                st.write(f"▫️ {chr(65 + opt_i)}. {opt_text}")
+                st.write(f"▫️ {letter}. {opt_text}")
         
         st.divider()
-
-    try:
-        word_bytes = generate_answers_word(
-            user_name=res['full_name'] or res['username'],
-            topic=res['topic'],
-            score=res['score'],
-            total=res['total_questions'],
-            answers_data=answers
-        )
-        st.download_button(
-            label="📥 Скачать разбор в Word",
-            data=word_bytes,
-            file_name=f"answers_{res['username']}_{res['id']}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            type="primary",
-            use_container_width=True
-        )
-    except Exception as e:
-        st.error(f"Ошибка генерации Word: {e}")
 
 
 # ==================================================================

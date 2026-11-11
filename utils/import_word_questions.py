@@ -61,26 +61,28 @@ def parse_questions_word(file_bytes):
     text = re.sub(r'[•●○■□▪▫►▶]', '', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
-    # 3. ПРАВИЛЬНЫЕ ОТВЕТЫ (Ищем в полном тексте ДО обрезки)
+    # --- 3. ПРАВИЛЬНЫЕ ОТВЕТЫ (Ищем в полном тексте ДО обрезки) ---
     answers_dict = {}
-    tail_text = text[-1500:] # Берем последние 1500 символов
-    # Ищем паттерн: цифра, пробел, буква (например, "1 А", "2 В")
+    # Берем последние 3000 символов, чтобы точно захватить все ответы
+    tail_text = text[-3000:] 
+    
+    # Ищем паттерн: цифра, затем любые символы (точки, пробелы), затем буквы
     matches = re.findall(r'(\d{1,2})\s*[\.\,]?\s*([AАБВГ](?:[\s\,\.]*[AАБВГ])*)', tail_text)
     
     for q_num, ans_letters in matches:
         ans_letters = ans_letters.upper().replace('A', 'А').replace('B', 'Б').replace('C', 'В')
-        # Очищаем от лишних символов (точек, запятых)
+        # Очищаем от лишних символов, оставляем только буквы
         ans_letters = re.sub(r'[^АБВГ]', '', ans_letters)
         answers_dict[int(q_num)] = ans_letters
 
-    # 4. ОБРЕЗАЕМ ХВОСТ (Чтобы мусор не попал в вопросы)
-    cut_markers = ["***Конец", "СПАСИБО ЗА УЧАСТИЕ", "Правильные ответы", "Результат_______"]
+    # --- 4. ОБРЕЗАЕМ ХВОСТ (Чтобы мусор не попал в вопросы) ---
+    cut_markers = ["***Конец", "СПАСИБО ЗА УЧАСТИЕ", "Правильные ответы", "Результат"]
     for marker in cut_markers:
         if marker in text:
             text = text.split(marker)[0].strip()
             break 
 
-    # 5. РАЗБИВАЕМ НА ВОПРОСЫ
+    # --- 5. РАЗБИВАЕМ НА ВОПРОСЫ ---
     final_questions = []
     question_starts = list(re.finditer(r'(?<!\d)(\d{1,2})\.', text))
     
@@ -117,6 +119,8 @@ def parse_questions_word(file_bytes):
                     if opt_match:
                         letter = opt_match.group(1).upper().replace('A', 'А').replace('B', 'Б').replace('C', 'В')
                         opt_text = re.sub(r'\s+', ' ', opt_match.group(2)).strip()
+                        # Чистим вариант от случайного мусора
+                        opt_text = re.sub(r'СПАСИБО.*', '', opt_text).strip()
                         opts.append({"letter": letter, "text": opt_text, "image_path": None})
             else:
                 continue

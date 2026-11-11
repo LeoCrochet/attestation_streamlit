@@ -56,29 +56,48 @@ def show_answers_dialog(result_id):
     if isinstance(answers, dict):
         st.warning("⚠️ Это старый формат ответов. Пройдите тест заново, чтобы увидеть детали.")
         return
+
+    def _flatten(lst):
+        res = []
+        for item in lst:
+            if isinstance(item, list):
+                res.extend(_flatten(item))
+            else:
+                res.append(item)
+        return res
         
     for i, ans in enumerate(answers, start=1):
         st.markdown(f"### Вопрос {i}: {ans.get('question_text', '—')}")
         
         opts = ans.get("options", [])
-        user_idx = ans.get("user_answer_idx")
-        correct_idx = ans.get("correct_answer_idx")
+        
+        # --- ПОДДЕРЖКА СПИСКОВ ---
+        user_ans = ans.get("user_answer_idx")
+        correct_ans = ans.get("correct_answer_idx")
+        
+        # Приводим к плоским спискам
+        if not isinstance(user_ans, list): user_ans = [user_ans] if user_ans is not None else []
+        if not isinstance(correct_ans, list): correct_ans = [correct_ans] if correct_ans is not None else []
+        
+        user_ans = _flatten(user_ans)
+        correct_ans = _flatten(correct_ans)
         
         for opt_i, opt_text in enumerate(opts):
-            is_user_choice = (opt_i == user_idx)
-            is_correct = (opt_i == correct_idx)
+            is_user_choice = (opt_i in user_ans)
+            is_correct = (opt_i in correct_ans)
             
             if is_correct and is_user_choice:
-                st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, верно)*")
+                st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Выбрано верно)*")
             elif is_correct:
-                st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Правильный ответ)*")
+                st.info(f"ℹ️ **{chr(65 + opt_i)}. {opt_text}** *(Правильный ответ)*")
             elif is_user_choice:
-                st.error(f"❌ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, неверно)*")
+                st.error(f"❌ **{chr(65 + opt_i)}. {opt_text}** *(Выбрано неверно)*")
             else:
                 st.write(f"▫️ {chr(65 + opt_i)}. {opt_text}")
         
         st.divider()
 
+    # Кнопка экспорта в Word
     try:
         word_bytes = generate_answers_word(
             user_name=res['full_name'] or res['username'],

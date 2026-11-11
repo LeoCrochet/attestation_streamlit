@@ -234,10 +234,16 @@ elif not st.session_state.get("test_finished"):
                 else:
                     st.write(opt)
     else:
+        # Для одиночного выбора (радиокнопки)
         labels = [f"{chr(65 + i)}. {o}" for i, o in enumerate(options)]
         choice = st.radio("Вариант ответа", labels, key=f"radio_{idx}")
-        selected_indices = [labels.index(choice)]
+        selected_idx = labels.index(choice)
+        selected_indices = [selected_idx]
 
+        # Выводим картинку выбранного варианта прямо под кнопками
+        if selected_idx < len(option_images) and option_images[selected_idx] and os.path.exists(option_images[selected_idx]):
+            st.image(option_images[selected_idx], width=200)
+    # --- КНОПКИ НАВИГАЦИИ ---
     c1, c2 = st.columns([1, 1])
     with c1:
         if idx > 0 and st.button("⬅️ Назад", use_container_width=True):
@@ -246,6 +252,7 @@ elif not st.session_state.get("test_finished"):
     with c2:
         btn_label = "Завершить ✅" if idx == len(qs) - 1 else "Далее ➡️"
         if st.button(btn_label, type="primary", use_container_width=True):
+            # Сохраняем ответ
             st.session_state.answers[idx] = selected_indices
 
             if idx == len(qs) - 1:

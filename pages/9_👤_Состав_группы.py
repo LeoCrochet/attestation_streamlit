@@ -67,6 +67,10 @@ if group["is_active"]:
         st.warning("⚠️ **Внимание!** Завершение обучения заблокирует пересдачи и сгенерирует итоговый протокол.")
         if st.button("Завершить обучение группы", type="primary"):
             protocol_id = db.finish_group_training(group["id"], st.session_state.user)
+                
+            # ВАЖНО: Добавляем ID в словарь группы для генератора
+            group['protocol_id'] = protocol_id 
+                
             detailed = db.get_group_results_detailed(group["id"])
             
             try:

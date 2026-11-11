@@ -148,6 +148,11 @@ with tab_list:
                 if selected_del_group["is_active"]:
                     if st.button("🚫 Деактивировать (в архив)", use_container_width=True):
                         protocol_id = db.finish_group_training(selected_del_group["id"], st.session_state.user)
+                        
+                        # ВАЖНО: Добавляем ID в словарь
+                        selected_del_group['protocol_id'] = protocol_id
+                        
+    
                         members = db.get_group_members(selected_del_group["id"], only_active=True)
                         detailed = db.get_group_results_detailed(selected_del_group["id"])
                         

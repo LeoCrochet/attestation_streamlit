@@ -87,6 +87,27 @@ def show_answers_dialog(result_id):
         
         st.divider()
 
+    # кнопка экспорта
+    try:
+        from utils.word_export import generate_answers_word
+        word_bytes = generate_answers_word(
+            user_name=res['full_name'] or res['username'],
+            topic=res['topic'],
+            score=res['score'],
+            total=res['total_questions'],
+            answers_data=answers
+        )
+        st.download_button(
+            label="📥 Скачать разбор в Word",
+            data=word_bytes,
+            file_name=f"answers_{res['username']}_{res['id']}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            type="primary",
+            use_container_width=True
+        )
+    except Exception as e:
+        st.error(f"Ошибка генерации Word: {e}")
+
 
 # ==================================================================
 # РАЗДЕЛЕНИЕ ПО РОЛЯМ

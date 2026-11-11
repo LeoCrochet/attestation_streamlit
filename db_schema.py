@@ -19,16 +19,17 @@ SCHEMA_QUERIES = [
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
 
-    # 2. ВОПРОСЫ
+     # 2. ВОПРОСЫ
     """
     CREATE TABLE IF NOT EXISTS questions (
         id INT PRIMARY KEY AUTO_INCREMENT,
         topic VARCHAR(100) NOT NULL,
         question TEXT NOT NULL,
         options JSON NOT NULL,
-        correct_answer INT NOT NULL,
+        option_images JSON DEFAULT NULL,
+        correct_answer JSON NOT NULL, -- <-- ИЗМЕНЕНО С INT НА JSON
         difficulty INT DEFAULT 1,
-        image_path VARCHAR(255) DEFAULT NULL, -- <-- НОВОЕ ПОЛЕ
+        image_path VARCHAR(255) DEFAULT NULL,
         created_by VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         tags VARCHAR(255) DEFAULT NULL,
@@ -202,4 +203,6 @@ MIGRATION_ALTERS = [
     "ALTER TABLE protocols ADD COLUMN closed_by VARCHAR(50) DEFAULT NULL",
     "ALTER TABLE assignments ADD COLUMN is_training BOOLEAN DEFAULT FALSE",
     "ALTER TABLE questions ADD COLUMN image_path VARCHAR(255) DEFAULT NULL",
+    "ALTER TABLE questions MODIFY COLUMN correct_answer JSON NOT NULL",
+    "ALTER TABLE questions ADD COLUMN option_images JSON DEFAULT NULL",
 ]

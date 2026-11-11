@@ -1,7 +1,7 @@
 import json
 import random
 import time
-import os # <-- ДОБАВЛЕНО ДЛЯ ПРОВЕРКИ ФАЙЛОВ
+import os
 from datetime import datetime
 
 from utils.session import restore_session
@@ -57,9 +57,20 @@ if "impersonate_user_id" in st.session_state:
 def _reset_test_state():
     for key in (
         "test_questions", "answers", "current_q", "test_start", "test_finished",
-        "test_topic", "balloons_shown", "assignment_id", "assignment_time_limit", "test_end_time"
+        "test_topic", "balloons_shown", "assignment_id", "assignment_time_limit", "test_end_time",
+        "result_saved", "is_free_test"
     ):
         st.session_state.pop(key, None)
+
+def _flatten(lst):
+    """Убирает вложенность списков (например, [[0, 1]] -> [0, 1])."""
+    res = []
+    for item in lst:
+        if isinstance(item, list):
+            res.extend(_flatten(item))
+        else:
+            res.append(item)
+    return res
 
 
 st.title("📝 Тестирование")
@@ -73,7 +84,6 @@ if not st.session_state.get("test_questions"):
             attempts_left = a["max_attempts"] - (a["attempts_used"] or 0)
             is_done = (a.get("best_score") or 0) >= a["pass_score"]
             
-            # --- Подсветка дедлайна ---
             deadline_str = "без дедлайна"
             deadline_color = "gray"
             if a.get("due_date"):
@@ -84,7 +94,7 @@ if not st.session_state.get("test_questions"):
                 if delta.total_seconds() < 0:
                     deadline_color = "red"
                     deadline_str += " (просрочено)"
-                elif delta.total_seconds() < 86400: # меньше суток
+                elif delta.total_seconds() < 86400:
                     deadline_color = "orange"
 
             with st.container(border=True):
@@ -92,15 +102,9 @@ if not st.session_state.get("test_questions"):
                 with c1:
                     st.markdown(f"**{a['title'] or a['topic'] or 'Все темы'}**")
                     st.caption(f"Группа: {a['group_name']} • Вопросов: {a['num_questions']} • Проходной: {a['pass_score']}%")
-                    
-                    # Метка тренировки
                     if a.get("is_training"):
                         st.caption("🎓 **Тренировка:** результаты не сохраняются в статистику.")
-                    
-                    st.markdown(
-                        f"Дедлайн: :{deadline_color}[{deadline_str}]", 
-                        unsafe_allow_html=True
-                    )
+                    st.markdown(f"Дедлайн: :{deadline_color}[{deadline_str}]", unsafe_allow_html=True)
                 with c2:
                     if is_done:
                         st.success(f"✅ {a['best_score']:.0f}%")
@@ -108,10 +112,7 @@ if not st.session_state.get("test_questions"):
                         st.error("Попытки исчерпаны")
                     else:
                         st.info(f"Попыток: {attempts_left} из {a['max_attempts']}")
-                        st.progress(
-                            (a["max_attempts"] - attempts_left) / a["max_attempts"],
-                            text=f"Использовано {a['max_attempts'] - attempts_left}"
-                        )
+                        st.progress((a["max_attempts"] - attempts_left) / a["max_attempts"], text=f"Использовано {a['max_attempts'] - attempts_left}")
                 with c3:
                     disabled = is_done or attempts_left <= 0
                     if st.button("▶️ Начать", key=f"start_assign_{a['id']}", type="primary", use_container_width=True, disabled=disabled):
@@ -137,21 +138,17 @@ if not st.session_state.get("test_questions"):
                             st.rerun()
         st.divider()
 
-# ========== ЭКРАН 1: ВЫБОР И СТАРТ (Только для админа/методиста) ==========
+# ========== ЭКРАН 1: ВЫБОР И СТАРТ ==========
 if not st.session_state.get("test_questions"):
-    # Показываем свободный тест только админу или методисту (для проверки)
     if st.session_state.get("role") in ("admin", "methodist"):
-        st.info("💡 Режим проверки: вы можете пройти свободный тест, чтобы проверить работу системы. Обычным пользователям доступны только назначенные задания.")
-        
+        st.info("💡 Режим проверки: вы можете пройти свободный тест, чтобы проверить работу системы.")
         topics = ["Все темы"] + db.get_all_topics()
 
         c1, c2 = st.columns([2, 1])
         with c1:
             selected_topic = st.selectbox("Тема", topics, key="sel_topic")
         with c2:
-            num_questions = st.number_input(
-                "Кол-во вопросов", min_value=1, max_value=50, value=10, key="sel_num",
-            )
+            num_questions = st.number_input("Кол-во вопросов", min_value=1, max_value=50, value=10, key="sel_num")
 
         if st.button("🚀 Начать тест (Свободный)", type="primary", use_container_width=True):
             topic_filter = None if selected_topic == "Все темы" else selected_topic
@@ -167,10 +164,9 @@ if not st.session_state.get("test_questions"):
                 st.session_state.test_start = time.time()
                 st.session_state.test_topic = selected_topic
                 st.session_state.test_finished = False
-                st.session_state.is_free_test = True # <--- Флаг для кнопки "Пройти ещё раз"
+                st.session_state.is_free_test = True
                 st.rerun()
     else:
-        # Для обычных пользователей
         if not st.session_state.get("test_questions"):
             st.info("👋 У вас нет активных заданий. Пожалуйста, ожидайте назначения теста от методиста.")
 
@@ -181,7 +177,6 @@ elif not st.session_state.get("test_finished"):
     idx = st.session_state.current_q
     q = qs[idx]
 
-    # --- ВЫРАВНИВАНИЕ ТАЙМЕРА И ПРОГРЕСС-БАРА ---
     c_prog, c_timer = st.columns([3, 1])
     with c_prog:
         st.progress(idx / len(qs), text=f"Вопрос {idx + 1} из {len(qs)}")
@@ -196,64 +191,52 @@ elif not st.session_state.get("test_finished"):
                     st.warning(f"⏳ **{mins:02d}:{secs:02d}**")
                 else:
                     st.error("⏰ **Время вышло!**")
-                    # Собираем детальные ответы перед сохранением
-                    answers_detail = []
-                    for i, qq in enumerate(qs):
-                        user_ans_idx = st.session_state.answers.get(i)
-                        options = json.loads(qq["options"]) if isinstance(qq["options"], str) else qq["options"]
-                        answers_detail.append({
-                            "question_id": qq["id"], "question_text": qq["question"],
-                            "options": options, "user_answer_idx": user_ans_idx,
-                            "user_answer_text": options[user_ans_idx] if user_ans_idx is not None else None,
-                            "correct_answer_idx": qq["correct_answer"], "correct_answer_text": options[qq["correct_answer"]],
-                            "is_correct": user_ans_idx == qq["correct_answer"]
-                        })
-
-                    score = sum(1 for ans in answers_detail if ans["is_correct"])
-                    assignment_id = st.session_state.get("assignment_id")
-                    group_id = None
-                    if assignment_id:
-                        assignment = db.get_assignment(assignment_id)
-                        group_id = assignment["group_id"] if assignment else None
-                    elif "impersonate_group_id" in st.session_state:
-                        group_id = st.session_state["impersonate_group_id"]
-                    else:
-                        user_groups = db.get_user_groups(st.session_state.user_id)
-                        group_id = user_groups[0]["id"] if len(user_groups) == 1 else None
-
-                    # --- ПРОВЕРКА НА ТРЕНИРОВКУ ---
-                    is_training = False
-                    if assignment_id:
-                        assignment = db.get_assignment(assignment_id)
-                        if assignment and assignment.get("is_training"):
-                            is_training = True
-
-                    if is_training:
-                        st.toast("🎓 Это была тренировка. Результат не сохранен в базу.", icon="ℹ️")
-                    else:
-                        db.save_result(
-                            user_id=st.session_state.user_id, user_name=st.session_state.user,
-                            topic=st.session_state.get("test_topic", "Все"), answers=answers_detail,
-                            score=score, total=len(qs), time_spent=int(time.time() - st.session_state.test_start),
-                            group_id=group_id, assignment_id=assignment_id,
-                        )
                     st.session_state.test_finished = True
-                    st.session_state.balloons_shown = False
                     st.rerun()
             show_timer()
         else:
             st.write("⏳ Без лимита")
 
-    # --- ОТОБРАЖЕНИЕ КАРТИНКИ ---
-    if q.get("image_path") and os.path.exists(q["image_path"]):
-        st.image(q["image_path"], width=400)
-
+    # --- ОТОБРАЖЕНИЕ ТЕКСТА И ГЛАВНОЙ КАРТИНКИ ---
     st.subheader(q["question"])
+    if q.get("image_path") and os.path.exists(q["image_path"]):
+        st.image(q["image_path"], width=300)
 
     options = json.loads(q["options"]) if isinstance(q["options"], str) else q["options"]
-    labels = [f"{chr(65 + i)}. {o}" for i, o in enumerate(options)]
-    choice = st.radio("Вариант ответа", labels, key=f"radio_{idx}")
-    selected_idx = labels.index(choice)
+    option_images = q.get("option_images") or []
+    
+    # Распаковка правильных ответов
+    raw_correct = q["correct_answer"]
+    if isinstance(raw_correct, str):
+        try:
+            correct_indices = json.loads(raw_correct)
+        except:
+            correct_indices = [0]
+    else:
+        correct_indices = [raw_correct] if isinstance(raw_correct, int) else raw_correct
+        
+    correct_indices = _flatten(correct_indices)
+
+    is_multi = len(correct_indices) > 1
+    selected_indices = []
+
+    # --- ЛОГИКА ВЫБОРА ---
+    if is_multi:
+        st.info("ℹ️ **Выберите все правильные варианты**")
+        for i, opt in enumerate(options):
+            col1, col2 = st.columns([1, 5])
+            with col1:
+                if st.checkbox(f"{chr(65 + i)}", key=f"cb_{idx}_{i}"):
+                    selected_indices.append(i)
+            with col2:
+                if i < len(option_images) and option_images[i] and os.path.exists(option_images[i]):
+                    st.image(option_images[i], width=100)
+                else:
+                    st.write(opt)
+    else:
+        labels = [f"{chr(65 + i)}. {o}" for i, o in enumerate(options)]
+        choice = st.radio("Вариант ответа", labels, key=f"radio_{idx}")
+        selected_indices = [labels.index(choice)]
 
     c1, c2 = st.columns([1, 1])
     with c1:
@@ -263,49 +246,9 @@ elif not st.session_state.get("test_finished"):
     with c2:
         btn_label = "Завершить ✅" if idx == len(qs) - 1 else "Далее ➡️"
         if st.button(btn_label, type="primary", use_container_width=True):
-            st.session_state.answers[idx] = selected_idx
+            st.session_state.answers[idx] = selected_indices
 
             if idx == len(qs) - 1:
-                answers_detail = []
-                for i, qq in enumerate(qs):
-                    user_ans_idx = st.session_state.answers.get(i)
-                    opts = json.loads(qq["options"]) if isinstance(qq["options"], str) else qq["options"]
-                    answers_detail.append({
-                        "question_id": qq["id"], "question_text": qq["question"],
-                        "options": opts, "user_answer_idx": user_ans_idx,
-                        "user_answer_text": opts[user_ans_idx] if user_ans_idx is not None else None,
-                        "correct_answer_idx": qq["correct_answer"], "correct_answer_text": opts[qq["correct_answer"]],
-                        "is_correct": user_ans_idx == qq["correct_answer"]
-                    })
-
-                score = sum(1 for ans in answers_detail if ans["is_correct"])
-                assignment_id = st.session_state.get("assignment_id")
-                group_id = None
-                if assignment_id:
-                    assignment = db.get_assignment(assignment_id)
-                    group_id = assignment["group_id"] if assignment else None
-                elif "impersonate_group_id" in st.session_state:
-                    group_id = st.session_state["impersonate_group_id"]
-                else:
-                    user_groups = db.get_user_groups(st.session_state.user_id)
-                    group_id = user_groups[0]["id"] if len(user_groups) == 1 else None
-
-                # --- ПРОВЕРКА НА ТРЕНИРОВКУ ---
-                is_training = False
-                if assignment_id:
-                    assignment = db.get_assignment(assignment_id)
-                    if assignment and assignment.get("is_training"):
-                        is_training = True
-
-                if is_training:
-                    st.toast("🎓 Это была тренировка. Результат не сохранен в базу.", icon="ℹ️")
-                else:
-                    db.save_result(
-                        user_id=st.session_state.user_id, user_name=st.session_state.user,
-                        topic=st.session_state.get("test_topic", "Все"), answers=answers_detail,
-                        score=score, total=len(qs), time_spent=int(time.time() - st.session_state.test_start),
-                        group_id=group_id, assignment_id=assignment_id,
-                    )
                 st.session_state.test_finished = True
                 st.session_state.balloons_shown = False
                 st.rerun()
@@ -318,7 +261,25 @@ elif not st.session_state.get("test_finished"):
 else:
     qs = st.session_state.test_questions
     ans = st.session_state.answers
-    score = sum(1 for i, q in enumerate(qs) if ans.get(i) == q["correct_answer"])
+    
+    score = 0
+    for i, q in enumerate(qs):
+        user_ans = ans.get(i, [])
+        if not isinstance(user_ans, list): user_ans = [user_ans]
+        
+        raw_correct = q["correct_answer"]
+        if isinstance(raw_correct, str):
+            try: correct_ans = json.loads(raw_correct)
+            except: correct_ans = [0]
+        else:
+            correct_ans = [raw_correct] if isinstance(raw_correct, int) else raw_correct
+            
+        user_ans_flat = _flatten(user_ans)
+        correct_ans_flat = _flatten(correct_ans)
+            
+        if set(user_ans_flat) == set(correct_ans_flat):
+            score += 1
+            
     pct = score / len(qs) * 100
 
     if not st.session_state.get("balloons_shown"):
@@ -327,63 +288,102 @@ else:
 
     st.success(f"### Результат: {score} из {len(qs)} ({pct:.1f}%)")
 
-    if st.session_state.get("assignment_id"):
-        assignment = db.get_assignment(st.session_state["assignment_id"])
-        if assignment:
-            passed = pct >= assignment["pass_score"]
-            if passed:
-                st.success(f"✅ Задание сдано (проходной {assignment['pass_score']}%)")
-            else:
-                st.warning(f"⚠️ Не пройден проходной балл ({assignment['pass_score']}%).")
+    if not st.session_state.get("result_saved"):
+        assignment_id = st.session_state.get("assignment_id")
+        group_id = None
+        if assignment_id:
+            assignment = db.get_assignment(assignment_id)
+            group_id = assignment["group_id"] if assignment else None
+        elif "impersonate_group_id" in st.session_state:
+            group_id = st.session_state["impersonate_group_id"]
+        else:
+            user_groups = db.get_user_groups(st.session_state.user_id)
+            group_id = user_groups[0]["id"] if len(user_groups) == 1 else None
 
-    if pct >= 80:
-        st.success("🎉 Отлично! Высокий уровень знаний.")
-    elif pct >= 60:
-        st.info("👍 Хороший результат.")
-    else:
-        st.warning("📚 Стоит повторить материал.")
+        is_training = False
+        if assignment_id:
+            assignment = db.get_assignment(assignment_id)
+            if assignment and assignment.get("is_training"):
+                is_training = True
+
+        if is_training:
+            st.toast("🎓 Это была тренировка. Результат не сохранен.", icon="ℹ️")
+        else:
+            answers_detail = []
+            for i, q in enumerate(qs):
+                opts = json.loads(q["options"])
+                user_ans = ans.get(i, [])
+                if not isinstance(user_ans, list): user_ans = [user_ans]
+                
+                raw_c = q["correct_answer"]
+                if isinstance(raw_c, str):
+                    try: c_ans = json.loads(raw_c)
+                    except: c_ans = [0]
+                else: c_ans = [raw_c]
+
+                user_ans_flat = _flatten(user_ans)
+                c_ans_flat = _flatten(c_ans)
+
+                answers_detail.append({
+                    "question_id": q["id"], "question_text": q["question"],
+                    "options": opts, "user_answer_idx": user_ans_flat, 
+                    "correct_answer_idx": c_ans_flat, 
+                    "is_correct": set(user_ans_flat) == set(c_ans_flat)
+                })
+
+            db.save_result(
+                user_id=st.session_state.user_id, user_name=st.session_state.user,
+                topic=st.session_state.get("test_topic", "Все"), answers=answers_detail,
+                score=score, total=len(qs), time_spent=int(time.time() - st.session_state.test_start),
+                group_id=group_id, assignment_id=assignment_id,
+            )
+        st.session_state.result_saved = True
 
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("❌ Закрыть", type="primary", use_container_width=True):
             _reset_test_state()
             st.rerun()
-    
-    # Кнопка "Пройти ещё раз" только для свободных тестов (методист/админ)
     if st.session_state.get("is_free_test"):
         with c2:
             if st.button("🔄 Пройти ещё раз", use_container_width=True):
                 _reset_test_state()
                 st.rerun()
-                
     with c3:
         if st.button("📊 Мои результаты", use_container_width=True):
             st.switch_page("pages/2_📊_Результаты.py")
 
-     # Детальный просмотр ответов доступен только админам и методистам
     if st.session_state.get("role") in ("admin", "methodist"):
-        with st.expander("📋 Детальный просмотр ответов (режим проверки)"):
+        with st.expander("📋 Детальный просмотр ответов"):
             for i, q in enumerate(qs):
                 options = json.loads(q["options"])
-                user_idx = ans.get(i)
-                correct_idx = q["correct_answer"]
+                user_ans = ans.get(i, [])
+                if not isinstance(user_ans, list): user_ans = [user_ans]
                 
-                # Если у вопроса есть картинка, показываем её в разборе
+                raw_c = q["correct_answer"]
+                if isinstance(raw_c, str):
+                    try: c_ans = json.loads(raw_c)
+                    except: c_ans = [0]
+                else: c_ans = [raw_c]
+
+                user_ans_flat = _flatten(user_ans)
+                c_ans_flat = _flatten(c_ans)
+
                 if q.get("image_path") and os.path.exists(q["image_path"]):
                     st.image(q["image_path"], width=300)
                     
                 st.markdown(f"**Вопрос {i + 1}: {q['question']}**")
                 
                 for opt_i, opt_text in enumerate(options):
-                    is_user_choice = (opt_i == user_idx)
-                    is_correct = (opt_i == correct_idx)
+                    is_user = opt_i in user_ans_flat
+                    is_correct = opt_i in c_ans_flat
                     
-                    if is_correct and is_user_choice:
-                        st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, верно)*")
+                    if is_correct and is_user:
+                        st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Выбрано верно)*")
                     elif is_correct:
-                        st.success(f"✅ **{chr(65 + opt_i)}. {opt_text}** *(Правильный ответ)*")
-                    elif is_user_choice:
-                        st.error(f"❌ **{chr(65 + opt_i)}. {opt_text}** *(Ваш ответ, неверно)*")
+                        st.info(f"ℹ️ **{chr(65 + opt_i)}. {opt_text}** *(Правильный ответ)*")
+                    elif is_user:
+                        st.error(f"❌ **{chr(65 + opt_i)}. {opt_text}** *(Выбрано неверно)*")
                     else:
                         st.write(f"▫️ {chr(65 + opt_i)}. {opt_text}")
                 

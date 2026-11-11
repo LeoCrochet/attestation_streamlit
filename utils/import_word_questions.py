@@ -1,4 +1,4 @@
-"""Надежный парсер вопросов из Word (.docx) с автоопределением темы."""
+"""Парсер вопросов с поддержкой таблиц и картинок."""
 import io
 import re
 import os
@@ -14,7 +14,7 @@ def parse_questions_word(file_bytes):
     os.makedirs("uploads/questions", exist_ok=True)
 
     # 1. Извлекаем картинки
-    image_list = []
+    image_paths = {}
     for rel in doc.part.rels.values():
         if "image" in rel.target_ref:
             ext = rel.target_ref.split('.')[-1]
@@ -22,57 +22,70 @@ def parse_questions_word(file_bytes):
             filepath = f"uploads/questions/{filename}"
             with open(filepath, "wb") as f:
                 f.write(rel.target_part.blob)
-            image_list.append(filepath)
+            image_paths[rel.rId] = filepath
 
-    # 2. Собираем текст и ищем заголовок
+    # 2. Собираем текст и таблицы
     full_text = []
-    auto_topic = "Импорт из Word" # Тема по умолчанию
+    table_options = {}
     
-    for p in doc.paragraphs:
-        if p.text.strip():
-            text = p.text.strip()
-            full_text.append(text)
-            
-            # Ищем заголовок темы (если тема еще не найдена)
-            # Обычно он начинается со слова "Тест" или "Тема:"
-            if auto_topic == "Импорт из Word":
-                if text.lower().startswith("тест для") or text.lower().startswith("тест по"):
-                    # Очищаем от лишних кавычек и пробелов
-                    auto_topic = text.strip('"\'«» ').strip()
-                elif text.lower().startswith("тема:"):
-                    auto_topic = text[5:].strip('"\'«» ').strip()
-
-    # Добавляем текст из таблиц
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                if cell.text.strip():
-                    full_text.append(cell.text.strip())
+    for element in doc.element.body:
+        if element.tag.endswith('p'):
+            text = "".join(node.text for node in element.iter() if node.tag.endswith('t') and node.text)
+            if text.strip():
+                full_text.append(text.strip())
+        elif element.tag.endswith('tbl'):
+            tbl = next((t for t in doc.tables if t._tbl == element), None)
+            if tbl:
+                opts = []
+                for row in tbl.rows:
+                    cells = row.cells
+                    if len(cells) >= 2:
+                        letter_text = cells[0].text.strip()
+                        # Ищем картинку во второй ячейке
+                        img_rIds = re.findall(r'r:embed="(rId\d+)"', cells[1]._tc.xml)
+                        img_path = None
+                        if img_rIds and img_rIds[0] in image_paths:
+                            img_path = image_paths[img_rIds[0]]
+                        
+                        letter_match = re.match(r'^([AАБВГ])', letter_text)
+                        if letter_match:
+                            letter = letter_match.group(1).upper().replace('A', 'А').replace('B', 'Б')
+                            opts.append({"letter": letter, "text": letter_text, "image_path": img_path})
+                
+                table_key = f"TABLE_{len(table_options)}"
+                table_options[table_key] = opts
+                full_text.append(f" [{table_key}] ")
 
     text = " ".join(full_text)
-    text = text.replace('\xa0', ' ').replace('\n', ' ')
-    text = re.sub(r'\s+', ' ', text)
+    text = text.replace('\xa0', ' ').replace('\t', ' ').replace('\n', ' ').replace('\r', ' ')
+    text = re.sub(r'[•●○■□▪▫►▶]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
 
-    # Обрезаем тему, если она слишком длинная (для красоты в БД)
-    if len(auto_topic) > 100:
-        auto_topic = auto_topic[:97] + "..."
-
-    # 3. Ищем ответы
+    # 3. ПРАВИЛЬНЫЕ ОТВЕТЫ (Ищем в полном тексте ДО обрезки)
     answers_dict = {}
-    tail_text = text[-1000:]
-    matches = re.findall(r'(\d{1,2})\s*([AАБВГ](?:\s*,\s*[AАБВГ])*)', tail_text)
+    tail_text = text[-1500:] # Берем последние 1500 символов
+    # Ищем паттерн: цифра, пробел, буква (например, "1 А", "2 В")
+    matches = re.findall(r'(\d{1,2})\s*[\.\,]?\s*([AАБВГ](?:[\s\,\.]*[AАБВГ])*)', tail_text)
+    
     for q_num, ans_letters in matches:
         ans_letters = ans_letters.upper().replace('A', 'А').replace('B', 'Б').replace('C', 'В')
+        # Очищаем от лишних символов (точек, запятых)
+        ans_letters = re.sub(r'[^АБВГ]', '', ans_letters)
         answers_dict[int(q_num)] = ans_letters
 
-    # 4. Разбиваем на вопросы
+    # 4. ОБРЕЗАЕМ ХВОСТ (Чтобы мусор не попал в вопросы)
+    cut_markers = ["***Конец", "СПАСИБО ЗА УЧАСТИЕ", "Правильные ответы", "Результат_______"]
+    for marker in cut_markers:
+        if marker in text:
+            text = text.split(marker)[0].strip()
+            break 
+
+    # 5. РАЗБИВАЕМ НА ВОПРОСЫ
     final_questions = []
-    question_starts = list(re.finditer(r'(?<!\d)(\d{1,2})[\.\)]\s+', text))
+    question_starts = list(re.finditer(r'(?<!\d)(\d{1,2})\.', text))
     
     if not question_starts:
-        return None, f"Не найдено ни одного вопроса. Начало текста: {text[:200]}..."
-
-    img_index = 0
+        return None, "Не найдено ни одного вопроса."
 
     for i in range(len(question_starts)):
         start_match = question_starts[i]
@@ -82,55 +95,59 @@ def parse_questions_word(file_bytes):
         end_idx = question_starts[i+1].start() if i + 1 < len(question_starts) else len(text)
         
         q_block = text[start_idx:end_idx].strip()
-        q_block = re.sub(r'^\d{1,2}[\.\)]\s+', '', q_block).strip()
+        q_block = re.sub(r'^\d{1,2}\.\s*', '', q_block).strip()
         
         if len(q_block) < 10:
             continue
 
-        opt_parts = re.split(r'(?=\b[AАБВГ][\)\.])', q_block)
-        
-        if len(opt_parts) < 3:
-            continue
-
-        question_text = opt_parts[0].strip()
-        
         opts = []
-        for opt_part in opt_parts[1:]:
-            opt_part = opt_part.strip()
-            opt_match = re.match(r'^([AАБВГ])[\)\.]\s*(.*)', opt_part, re.DOTALL)
-            if opt_match:
-                letter = opt_match.group(1).upper().replace('A', 'А').replace('B', 'Б').replace('C', 'В')
-                opt_text = opt_match.group(2).strip()
-                opts.append({"letter": letter, "text": opt_text})
+        table_match = re.search(r'\[(TABLE_\d+)\]', q_block)
+        if table_match:
+            table_key = table_match.group(1)
+            if table_key in table_options:
+                opts = table_options[table_key]
+                q_block = q_block.replace(table_match.group(0), "").strip()
         
+        if not opts:
+            opt_parts = re.split(r'(?=\b[AАБВГ][\)\.])', q_block)
+            if len(opt_parts) >= 3:
+                question_text = opt_parts[0].strip()
+                for opt_part in opt_parts[1:]:
+                    opt_match = re.match(r'^([AАБВГ])[\)\.]\s*(.*)', opt_part.strip(), re.DOTALL)
+                    if opt_match:
+                        letter = opt_match.group(1).upper().replace('A', 'А').replace('B', 'Б').replace('C', 'В')
+                        opt_text = re.sub(r'\s+', ' ', opt_match.group(2)).strip()
+                        opts.append({"letter": letter, "text": opt_text, "image_path": None})
+            else:
+                continue
+        else:
+            question_text = q_block.strip()
+
         if len(opts) < 2:
             continue
 
-        image_path = None
-        if img_index < len(image_list):
-            image_path = image_list[img_index]
-            img_index += 1
-
-        correct_idx = 0
-        correct_letter = answers_dict.get(q_num, "")
-        if correct_letter:
-            first_letter = correct_letter[0]
-            for j, opt in enumerate(opts):
-                if opt["letter"] == first_letter:
-                    correct_idx = j
-                    break
+        correct_indices = []
+        correct_letters_str = answers_dict.get(q_num, "")
+        
+        if correct_letters_str:
+            for letter in correct_letters_str:
+                for j, opt in enumerate(opts):
+                    if opt["letter"] == letter:
+                        correct_indices.append(j)
+                        break
+                        
+        if not correct_indices:
+            correct_indices = [0]
 
         final_questions.append({
-            "topic": auto_topic, # <-- ТЕПЕРЬ ИСПОЛЬЗУЕМ АВТОТЕМУ
+            "topic": "Импорт из Word",
             "question": question_text,
             "options": [opt["text"] for opt in opts],
-            "correct_answer": correct_idx,
+            "option_images": [opt["image_path"] for opt in opts],
+            "correct_answer": correct_indices,
             "explanation": None,
             "tags": None,
-            "image_path": image_path
+            "image_path": None
         })
 
-    if not final_questions:
-        return None, f"Найдено {len(question_starts)} номеров, но не удалось собрать вопросы с вариантами."
-        
     return final_questions, None

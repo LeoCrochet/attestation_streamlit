@@ -239,7 +239,24 @@ class Database:
             cursor.execute("SELECT * FROM questions WHERE topic = %s AND is_active = TRUE", (topic,))
         else:
             cursor.execute("SELECT * FROM questions WHERE is_active = TRUE")
-        return cursor.fetchall()
+        questions = cursor.fetchall()
+        
+        # Распаковываем correct_answer и option_images из JSON
+        for q in questions:
+            if isinstance(q.get("correct_answer"), str):
+                try:
+                    q["correct_answer"] = json.loads(q["correct_answer"])
+                except:
+                    q["correct_answer"] = [q["correct_answer"]]
+            if isinstance(q.get("option_images"), str):
+                try:
+                    q["option_images"] = json.loads(q["option_images"])
+                except:
+                    q["option_images"] = []
+            elif q.get("option_images") is None:
+                q["option_images"] = []
+                
+        return questions
 
     def get_all_topics(self, include_archived=False):
         cursor = self.get_cursor()
@@ -261,7 +278,24 @@ class Database:
     def get_question_by_id(self, question_id):
         cursor = self.get_cursor()
         cursor.execute("SELECT * FROM questions WHERE id = %s", (question_id,))
-        return cursor.fetchone()
+        q = cursor.fetchone()
+        if q:
+            # Распаковываем правильный ответ
+            if isinstance(q.get("correct_answer"), str):
+                try:
+                    q["correct_answer"] = json.loads(q["correct_answer"])
+                except:
+                    q["correct_answer"] = [q["correct_answer"]]
+            elif isinstance(q.get("correct_answer"), int):
+                q["correct_answer"] = [q["correct_answer"]]
+                
+            # Распаковываем картинки вариантов
+            if isinstance(q.get("option_images"), str):
+                try:
+                    q["option_images"] = json.loads(q["option_images"])
+                except:
+                    q["option_images"] = []
+        return q
 
     def get_questions_paginated(self, topic=None, search=None, difficulty=None, is_active=None, limit=50, offset=0):
         where, params = ["1=1"], []
@@ -281,17 +315,29 @@ class Database:
         cursor.execute(f"SELECT * FROM questions WHERE {where_sql} ORDER BY id DESC LIMIT %s OFFSET %s", params + [limit, offset])
         return cursor.fetchall(), total
 
-    def add_question(self, topic, question, options, correct_answer, difficulty=1, created_by=None, tags=None, explanation=None, image_path=None):
+    def add_question(self, topic, question, options, correct_answer, difficulty=1, created_by=None, tags=None, explanation=None, image_path=None, option_images=None):
         cursor = self.get_cursor()
+        
+        # --- ПОДДЕРЖКА МУЛЬТИВЫБОРА ---
+        if isinstance(correct_answer, list):
+            ca_to_save = json.dumps(correct_answer)
+        else:
+            ca_to_save = json.dumps([correct_answer])
+
+        # --- СОХРАНЕНИЕ КАРТИНОК ДЛЯ ВАРИАНТОВ ---
+        opt_images_json = json.dumps(option_images) if option_images else None
+
         self.execute_query(
-            "INSERT INTO questions (topic, question, options, correct_answer, difficulty, created_by, tags, explanation, image_path) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (topic, question, json.dumps(options, ensure_ascii=False), correct_answer, difficulty, created_by, tags, explanation, image_path), commit=True
+            "INSERT INTO questions (topic, question, options, correct_answer, difficulty, created_by, tags, explanation, image_path, option_images) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (topic, question, json.dumps(options, ensure_ascii=False), ca_to_save, difficulty, created_by, tags, explanation, image_path, opt_images_json), commit=True
         )
         new_id = cursor.lastrowid
+        
         try:
             self.execute_query("INSERT INTO questions_history (question_id, action, changed_by, new_data) VALUES (%s, 'create', %s, %s)",
                 (new_id, created_by, json.dumps({"topic": topic, "question": question}, ensure_ascii=False)), commit=True)
         except Exception: pass
+        
         return new_id
 
     def update_question(self, question_id, **fields):
@@ -299,10 +345,24 @@ class Database:
         fields.pop("id", None); fields.pop("created_at", None)
         old = self.get_question_by_id(question_id)
         if not old: return False
+        
+        # --- ОБРАБОТКА МУЛЬТИВЫБОРА ---
+        if "correct_answer" in fields:
+            ca = fields["correct_answer"]
+            if isinstance(ca, list):
+                fields["correct_answer"] = json.dumps(ca)
+            else:
+                fields["correct_answer"] = json.dumps([ca])
+                
+        if "option_images" in fields and isinstance(fields["option_images"], list):
+            fields["option_images"] = json.dumps(fields["option_images"])
+                
         if "options" in fields and not isinstance(fields["options"], str):
             fields["options"] = json.dumps(fields["options"], ensure_ascii=False)
+            
         set_sql = ", ".join(f"{k} = %s" for k in fields)
         self.execute_query(f"UPDATE questions SET {set_sql} WHERE id = %s", list(fields.values()) + [question_id], commit=True)
+        
         try:
             self.execute_query("INSERT INTO questions_history (question_id, action, changed_by, old_data, new_data) VALUES (%s, 'update', %s, %s, %s)",
                 (question_id, fields.get("updated_by"), json.dumps(old, default=str), json.dumps(fields, default=str)), commit=True)
@@ -327,7 +387,8 @@ class Database:
         for i, q in enumerate(questions, start=1):
             try:
                 self.add_question(q["topic"], q["question"], q["options"], q["correct_answer"],
-                    q.get("difficulty", 1), created_by, q.get("tags"), q.get("explanation"))
+                    q.get("difficulty", 1), created_by, q.get("tags"), q.get("explanation"), 
+                    q.get("image_path"), q.get("option_images"))
                 added += 1
             except Exception as e: errors.append(f"Строка {i}: {e}")
         return added, errors
@@ -372,17 +433,10 @@ class Database:
         return {"overall": overall, "by_topic": by_topic, "by_difficulty": by_difficulty}
 
     def get_question_difficulty_stats(self):
-        """
-        Анализ ответов на вопросы по всем результатам.
-        Возвращает список словарей с ID вопроса, текстом, темой, 
-        общим количеством ответов, количеством правильных и процентом успешных ответов.
-        """
         cursor = self.get_cursor()
-        # Загружаем все результаты, где есть ответы
         cursor.execute("SELECT answers FROM results WHERE answers IS NOT NULL")
         results = cursor.fetchall()
 
-        # Загружаем все вопросы
         cursor.execute("SELECT id, question, topic, options FROM questions")
         questions_map = {q["id"]: q for q in cursor.fetchall()}
 
@@ -414,7 +468,6 @@ class Database:
             except Exception:
                 continue
 
-        # Формируем итоговый список с процентами
         result_list = []
         for qid, data in stats.items():
             total = data["total_attempts"]
@@ -425,7 +478,6 @@ class Database:
                 "percentage": pct
             })
 
-        # Сортируем по проценту (сначала самые проблемные)
         result_list.sort(key=lambda x: x["percentage"])
         return result_list
     
@@ -461,7 +513,6 @@ class Database:
         return cursor.fetchall()
 
     def get_user_statistics(self, user_id):
-        """Статистика пользователя. Для admin/methodist — пустая."""
         cursor = self.get_cursor()
         cursor.execute("SELECT role FROM users WHERE id = %s", (user_id,))
         row = cursor.fetchone()
@@ -475,7 +526,6 @@ class Database:
         return {'overall': overall, 'by_topic': by_topic}
 
     def get_result_details(self, result_id):
-        """Получить детальный результат теста (с вопросами и ответами)."""
         cursor = self.get_cursor()
         cursor.execute("""
             SELECT r.*, u.full_name, u.username
@@ -556,7 +606,6 @@ class Database:
         return cursor.fetchall()
 
     def get_global_statistics_by_profession(self):
-        """Статистика сдачи тестов в разрезе профессий (без admin/methodist)."""
         cursor = self.get_cursor()
         role_sql, role_params = self._exclude_service_roles_sql("u")
         cursor.execute(f"""
@@ -576,7 +625,6 @@ class Database:
         return cursor.fetchall()
 
     def get_global_statistics_by_month(self):
-        """Статистика сдачи тестов по месяцам (без admin/methodist)."""
         cursor = self.get_cursor()
         role_sql, role_params = self._exclude_service_roles_sql("u")
         cursor.execute(f"""
@@ -594,7 +642,6 @@ class Database:
 
     # ==================================================================
     # ГРУППЫ ОБУЧЕНИЯ
-    # (админ/методист в группы не попадают — фильтр по роли не нужен)
     # ==================================================================
 
     def get_all_groups(self, only_active=False, include_member_count=True):
@@ -638,7 +685,6 @@ class Database:
         return self.update_group(group_id, is_active=False)
 
     def hard_delete_group(self, group_id):
-        """Полное удаление группы и всех её данных."""
         self.execute_query("DELETE FROM protocols WHERE group_id = %s", (group_id,), commit=True)
         self.execute_query("DELETE FROM assignments WHERE group_id = %s", (group_id,), commit=True)
         self.execute_query("DELETE FROM group_members WHERE group_id = %s", (group_id,), commit=True)
@@ -709,7 +755,6 @@ class Database:
         return cursor.fetchall()
 
     def finish_group_training(self, group_id, closed_by):
-        """Закрыть обучение группы и создать финальный протокол."""
         cursor = self.get_cursor()
         try:
             cursor.execute("SELECT start_date FROM `groups` WHERE id = %s", (group_id,))
@@ -732,7 +777,6 @@ class Database:
             return None
 
     def save_protocol_file_path(self, protocol_id, file_path):
-        """Сохранить путь к сгенерированному файлу протокола."""
         self.execute_query("UPDATE protocols SET file_path = %s WHERE id = %s", (file_path, protocol_id), commit=True)
         return True
 
@@ -741,7 +785,6 @@ class Database:
         return True
 
     def delete_protocol(self, protocol_id):
-        """Удалить протокол и вернуть группу в активный статус."""
         cursor = self.get_cursor()
         try:
             cursor.execute("SELECT group_id FROM protocols WHERE id = %s", (protocol_id,))
@@ -761,7 +804,6 @@ class Database:
             return False
 
     def add_group_document(self, group_id, doc_type, file_name, file_path, uploaded_by):
-        """Добавить документ к группе."""
         self.execute_query("""
             INSERT INTO group_documents (group_id, doc_type, file_name, file_path, uploaded_by)
             VALUES (%s, %s, %s, %s, %s)
@@ -769,7 +811,6 @@ class Database:
         return True
 
     def get_group_documents(self, group_id):
-        """Получить список документов группы."""
         cursor = self.get_cursor()
         cursor.execute("""
             SELECT * FROM group_documents
@@ -779,6 +820,5 @@ class Database:
         return cursor.fetchall()
 
     def delete_group_document(self, doc_id):
-        """Удалить документ группы (запись в БД)."""
         self.execute_query("DELETE FROM group_documents WHERE id = %s", (doc_id,), commit=True)
         return True

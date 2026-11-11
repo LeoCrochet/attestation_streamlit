@@ -37,26 +37,36 @@ def generate_answers_word(user_name, topic, score, total, answers_data):
         
         # Варианты ответов
         opts = ans.get("options", [])
-        user_idx = ans.get("user_answer_idx")
-        correct_idx = ans.get("correct_answer_idx")
         
+        # Нормализация списков
+        user_ans = ans.get("user_answer_idx")
+        correct_ans = ans.get("correct_answer_idx")
+        
+        if not isinstance(user_ans, list): user_ans = [user_ans] if user_ans is not None else []
+        if not isinstance(correct_ans, list): correct_ans = [correct_ans] if correct_ans is not None else []
+        
+        user_ans = [x for sublist in user_ans for x in (sublist if isinstance(sublist, list) else [sublist])]
+        correct_ans = [x for sublist in correct_ans for x in (sublist if isinstance(sublist, list) else [sublist])]
+
         for opt_i, opt_text in enumerate(opts):
-            is_user_choice = (opt_i == user_idx)
-            is_correct = (opt_i == correct_idx)
+            is_user_choice = (opt_i in user_ans)
+            is_correct = (opt_i in correct_ans)
             
             opt_para = doc.add_paragraph(style='List Bullet')
+            letter = chr(65 + opt_i)
             
             if is_correct and is_user_choice:
-                run = opt_para.add_run(f"{chr(65 + opt_i)}. {opt_text} (Ваш ответ, верно)")
+                run = opt_para.add_run(f"{letter}. {opt_text} (Верно)")
+                run.bold = True
                 run.font.color.rgb = RGBColor(0, 128, 0) # Зеленый
             elif is_correct:
-                run = opt_para.add_run(f"{chr(65 + opt_i)}. {opt_text} (Правильный ответ)")
+                run = opt_para.add_run(f"{letter}. {opt_text} (Правильный ответ)")
                 run.font.color.rgb = RGBColor(0, 128, 0) # Зеленый
             elif is_user_choice:
-                run = opt_para.add_run(f"{chr(65 + opt_i)}. {opt_text} (Ваш ответ, неверно)")
+                run = opt_para.add_run(f"{letter}. {opt_text} (Выбрано неверно)")
                 run.font.color.rgb = RGBColor(255, 0, 0) # Красный
             else:
-                opt_para.add_run(f"{chr(65 + opt_i)}. {opt_text}")
+                opt_para.add_run(f"{letter}. {opt_text}")
         
         doc.add_paragraph('-' * 30)
 

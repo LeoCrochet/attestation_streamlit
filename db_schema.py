@@ -28,6 +28,7 @@ SCHEMA_QUERIES = [
         options JSON NOT NULL,
         correct_answer INT NOT NULL,
         difficulty INT DEFAULT 1,
+        image_path VARCHAR(255) DEFAULT NULL, -- <-- НОВОЕ ПОЛЕ
         created_by VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         tags VARCHAR(255) DEFAULT NULL,
@@ -200,4 +201,5 @@ MIGRATION_ALTERS = [
     "ALTER TABLE protocols ADD COLUMN file_path VARCHAR(255) DEFAULT NULL",
     "ALTER TABLE protocols ADD COLUMN closed_by VARCHAR(50) DEFAULT NULL",
     "ALTER TABLE assignments ADD COLUMN is_training BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE questions ADD COLUMN image_path VARCHAR(255) DEFAULT NULL",
 ]

@@ -281,11 +281,11 @@ class Database:
         cursor.execute(f"SELECT * FROM questions WHERE {where_sql} ORDER BY id DESC LIMIT %s OFFSET %s", params + [limit, offset])
         return cursor.fetchall(), total
 
-    def add_question(self, topic, question, options, correct_answer, difficulty=1, created_by=None, tags=None, explanation=None):
+    def add_question(self, topic, question, options, correct_answer, difficulty=1, created_by=None, tags=None, explanation=None, image_path=None):
         cursor = self.get_cursor()
         self.execute_query(
-            "INSERT INTO questions (topic, question, options, correct_answer, difficulty, created_by, tags, explanation) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (topic, question, json.dumps(options, ensure_ascii=False), correct_answer, difficulty, created_by, tags, explanation), commit=True
+            "INSERT INTO questions (topic, question, options, correct_answer, difficulty, created_by, tags, explanation, image_path) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (topic, question, json.dumps(options, ensure_ascii=False), correct_answer, difficulty, created_by, tags, explanation, image_path), commit=True
         )
         new_id = cursor.lastrowid
         try:

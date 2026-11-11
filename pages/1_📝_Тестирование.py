@@ -1,6 +1,7 @@
 import json
 import random
 import time
+import os # <-- ДОБАВЛЕНО ДЛЯ ПРОВЕРКИ ФАЙЛОВ
 from datetime import datetime
 
 from utils.session import restore_session
@@ -243,6 +244,10 @@ elif not st.session_state.get("test_finished"):
         else:
             st.write("⏳ Без лимита")
 
+    # --- ОТОБРАЖЕНИЕ КАРТИНКИ ---
+    if q.get("image_path") and os.path.exists(q["image_path"]):
+        st.image(q["image_path"], width=400)
+
     st.subheader(q["question"])
 
     options = json.loads(q["options"]) if isinstance(q["options"], str) else q["options"]
@@ -363,10 +368,12 @@ else:
                 user_idx = ans.get(i)
                 correct_idx = q["correct_answer"]
                 
-                # Заголовок вопроса
+                # Если у вопроса есть картинка, показываем её в разборе
+                if q.get("image_path") and os.path.exists(q["image_path"]):
+                    st.image(q["image_path"], width=300)
+                    
                 st.markdown(f"**Вопрос {i + 1}: {q['question']}**")
                 
-                # Вывод всех вариантов
                 for opt_i, opt_text in enumerate(options):
                     is_user_choice = (opt_i == user_idx)
                     is_correct = (opt_i == correct_idx)

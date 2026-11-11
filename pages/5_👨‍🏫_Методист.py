@@ -5,6 +5,7 @@ import datetime as _dt
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import os
 
 from utils.session import restore_session
 from utils.navigation import setup_page
@@ -328,7 +329,7 @@ with tab_import:
         )
 
     st.divider()
-    uploaded = st.file_uploader("Выберите файл", type=["csv", "json"], key="m_up")
+    uploaded = st.file_uploader("Выберите файл (CSV, JSON или Word)", type=["csv", "json", "docx"], key="m_up")
 
     if uploaded is not None:
         file_bytes = uploaded.read()
@@ -338,8 +339,14 @@ with tab_import:
             questions, errors = parse_csv(file_bytes)
         elif fname.endswith(".json"):
             questions, errors = parse_json(file_bytes)
+        elif fname.endswith(".docx"):
+            from utils.import_word_questions import parse_questions_word
+            questions, errors = parse_questions_word(file_bytes)
+            if errors:
+                st.error(errors)
+                questions = []
         else:
-            questions, errors = [], ["Поддерживаются только .csv и .json"]
+            questions, errors = [], ["Поддерживаются только .csv, .json и .docx"]
 
         if errors:
             st.error(f"Найдено ошибок: **{len(errors)}**")
@@ -352,6 +359,10 @@ with tab_import:
 
             with st.expander("Предпросмотр (первые 5)"):
                 for q in questions[:5]:
+                    # Выводим картинку, если она есть
+                    if q.get("image_path") and os.path.exists(q["image_path"]):
+                        st.image(q["image_path"], width=250)
+                        
                     st.write(f"**{q['topic']}**: {q['question']}")
                     for i, o in enumerate(q["options"]):
                         mark = "✅" if i == q["correct_answer"] else "▫️"
@@ -362,11 +373,25 @@ with tab_import:
                          use_container_width=True, key="m_import_btn"):
                 added, errs = db.bulk_add_questions(questions, created_by=st.session_state.user)
                 db.log_action(st.session_state.user_id, "questions_import", f"Импортировано: {added} из {len(questions)}")
-                st.success(f"✅ Импортировано: **{added}**")
-                if errs:
-                    st.warning(f"Ошибок: {len(errs)}")
-                    for e in errs[:20]:
-                        st.write("• " + e)
+                
+                if added > 0:
+                    st.success(f"✅ Импортировано: **{added}** вопросов.")
+                    if errs:
+                        st.warning(f"С некоторыми вопросами возникли ошибки: {len(errs)}")
+                        for e in errs[:20]:
+                            st.write("• " + e)
+                    
+                    # Небольшая пауза, чтобы пользователь увидел сообщение об успехе
+                    import time
+                    time.sleep(1.5) 
+                    
+                    # Принудительное обновление страницы
+                    st.rerun()
+                else:
+                    st.error("Не удалось импортировать вопросы.")
+                    if errs:
+                        for e in errs[:20]:
+                            st.write("• " + e)
 
 # ==================================================================
 # ВКЛАДКА 5: ЭКСПОРТ
